@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
+import { LayoutEngine } from "./modules/layout/components/LayoutEngine";
+import Nav from "./modules/nav/Nav"; // Importar o NAV
 import "./App.css";
 
 const appWindow = getCurrentWindow();
 
 function App() {
-  const [effect, setEffect] = useState<"Mica" | "Acrylic" | "None">("Mica");
   const [lastMessage, setLastMessage] = useState<string>("");
   
   const isMenu = appWindow.label === "context_menu";
@@ -21,7 +22,9 @@ function App() {
 
     const handleGlobalContextMenu = async (e: MouseEvent) => {
       e.preventDefault();
-      await invoke("trigger_context_menu");
+      if (!isMenu && !isHandle) {
+        await invoke("trigger_context_menu");
+      }
     };
 
     window.addEventListener("contextmenu", handleGlobalContextMenu);
@@ -29,10 +32,9 @@ function App() {
       unlisten.then((f) => f());
       window.removeEventListener("contextmenu", handleGlobalContextMenu);
     };
-  }, []);
+  }, [isMenu, isHandle]);
 
   const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
-    setEffect(newEffect);
     await invoke("apply_window_effect", { effect: newEffect });
     if (isMenu) await appWindow.hide();
   };
@@ -42,22 +44,19 @@ function App() {
     if (isMenu) await appWindow.hide();
   };
 
-  const handleDragStart = async (e: React.MouseEvent) => {
-    if (e.button === 0) { 
-      await invoke("start_drag_main");
-    }
-  };
-
-  // 1. ALÇA
+  // --- ALÇA (Janela 3) ---
   if (isHandle) {
     return (
-      <div className="handle-layout" onMouseDown={handleDragStart}>
+      <div 
+        className="handle-layout" 
+        onMouseDown={async (e) => { if (e.button === 0) await invoke("start_drag_main"); }}
+      >
         <div className="handle-dot" />
       </div>
     );
   }
 
-  // 2. MENU (OPÇÃO DE DESATIVAR RESTAURADA)
+  // --- MENU (Janela 4) ---
   if (isMenu) {
     return (
       <div className="menu-box">
@@ -69,23 +68,28 @@ function App() {
           <button onClick={() => setSide(3)}>Direita</button>
         </div>
         <div className="divider" />
-        <div className="menu-header">Estilo Visual</div>
+        <div className="menu-header">DNA Visual</div>
         <button onClick={() => changeEffect("Mica")}>Mica</button>
         <button onClick={() => changeEffect("Acrylic")}>Acrylic</button>
-        <button onClick={() => changeEffect("None")} style={{ color: '#ff4d4d' }}>Desabilitar Efeitos</button>
+        <button onClick={() => changeEffect("None")} style={{ color: '#ff4d4d' }}>Desativar</button>
         <button onClick={() => appWindow.close()} style={{ opacity: 0.3, marginTop: 'auto' }}>Fechar</button>
       </div>
     );
   }
 
+  // --- JANELA PRINCIPAL / TESTE ---
   return (
     <div className="main-wrapper">
-      <main className="container">
-        <h1>{appWindow.label === "main" ? "Principal" : "Janela de Teste"}</h1>
+      <div className="layout-container">
+        {/* Renderiza o NAV apenas se não for a janela de teste (opcional) */}
+        {appWindow.label === "main" && <Nav />}
+        
         {lastMessage && <div className="toast">📩 {lastMessage}</div>}
-        <p>DNA Ativo • Visual Brutalista</p>
-        <div className="info">Clique direito na alça para mudar posição</div>
-      </main>
+        
+        <div className="engine-content">
+          <LayoutEngine />
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,88 @@
+.engineWrapper {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+.splitContainer {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.pane {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.emptyPane {
+  text-align: center;
+  opacity: 0.4;
+}
+
+.emptyPane p {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.actions button {
+  background: rgba(255, 255, 255, 0.05);
+  border: none !important;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 9px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+
+.actions button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+/* RESIZER */
+.resizer {
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.2s;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.splitContainer[style*="flex-direction: row"] > .resizer {
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.splitContainer[style*="flex-direction: column"] > .resizer {
+  width: 100%;
+  height: 4px;
+  cursor: row-resize;
+}
+
+.resizer:hover, .resizer:active {
+  background: var(--accent, #0078d4);
+}
+
+.moduleContent {
+  color: white;
+  font-weight: 200;
+  font-size: 1.5rem;
+  opacity: 0.3;
+}

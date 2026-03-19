@@ -9,67 +9,58 @@ O Social OS subverte o **DWM (Desktop Window Manager)** para forçar uma estéti
 
 - **Aggressive Borderless:** Usamos `DWMWA_BORDER_COLOR` e `DWMWA_CAPTION_COLOR` como `0xFFFFFFFE` para eliminar halos de foco e linhas de título nativas.
 - **Brutalismo Geométrico:** Forçamos `DWMWCP_DONOTROUND`. O Social OS ignora a tendência de cantos arredondados em favor de linhas retas e vivas.
-- **Mica/Acrylic Persistente (O Hack do WNDPROC):** 
-    - **O Problema:** O Windows desativa transparências em janelas inativas.
-    - **A Solução:** Implementamos "Subclassing" de janela. Interceptamos a mensagem `WM_NCACTIVATE` e mentimos para o kernel, retornando sempre `WPARAM(1)` (Ativo).
+- **Mica/Acrylic Persistente (O Hack do WNDPROC):** Interceptamos a mensagem `WM_NCACTIVATE` e mentimos para o kernel, retornando sempre `WPARAM(1)` (Ativo).
 
 ---
 
 ## 🪟 2. Arquitetura de Múltiplas Janelas (The Quad-Core UI)
 O Social OS é um ecossistema de janelas sincronizadas:
-1.  **Main (`main`):** O núcleo da interface.
+1.  **Main (`main`):** O núcleo da interface e do Layout Engine.
 2.  **Teste (`test_dna`):** Janela para validação de módulos.
-3.  **Handle (`handle_win`):** Alça de arraste stealth e fixa.
+3.  **Handle (`handle_win`):** Alça de arraste stealth e fixa (150x20).
 4.  **Context Menu (`context_menu`):** Janela sob demanda (on-click).
 
 ---
 
-## ⚡ 3. Sincronia de Baixa Latência (Zero-Delay Sync)
-- **Native Event Loop:** A alça segue a janela principal via loop de eventos nativo do Rust (`WindowEvent::Moved`).
-- **Physical Coordinates:** Operamos com `PhysicalPosition` para ignorar escalas de DPI e garantir que a alça se mova no mesmo milissegundo que o app, sem tremor (jitter).
+## 📐 3. Engine de Layout (Tiling Window Manager)
+Implementamos um motor de janelas lado-a-lado inspirado em gerenciadores de janelas Linux (como i3 ou sway).
+
+- **Árvore Recursiva:** O layout é uma estrutura de dados de árvore onde cada nó pode ser um `Split` (divisão H/V) ou um `Pane` (espaço para módulo).
+- **Resizers Interativos:** Divisórias arrastáveis que permitem ajustar o `ratio` dos painéis em tempo real.
+- **Persistência de Grid:** O estado do layout é salvo no LocalStorage, garantindo que o usuário retorne exatamente para sua configuração de divisões.
 
 ---
 
-## 🧭 4. O Sistema de Alça Dinâmica (Stealth Handle)
-- **Arraste Remoto:** O comando `start_drag_main` delega o movimento da janela principal ao kernel a partir de um clique na janela da alça.
-- **Trilhos Dinâmicos:** A alça pode ser ancorada em 4 posições (Topo, Base, Esquerda, Direita) com ajuste automático de orientação (150x20 vs 20x150).
+## ⚡ 4. Sincronia de Baixa Latência (Zero-Delay Sync)
+- **Native Event Loop:** A alça segue a janela principal via loop de eventos nativo do Rust (`WindowEvent::Moved`).
+- **Physical Coordinates:** Operamos com `PhysicalPosition` para ignorar escalas de DPI e garantir sincronia milimétrica no movimento entre Janela 1 e Janela 3.
 
 ---
 
 ## 📜 5. A Crônica de Desafios (Batalhas Superadas)
 
-Nesta jornada, enfrentamos problemas complexos que exigiram soluções criativas:
-
 ### ⚔️ A Batalha das Referências (Rust Borrowing)
-- **Desafio:** Erros constantes de compilação `E0308` ao tentar aplicar o DNA Visual em múltiplas janelas.
-- **Causa:** Estávamos passando o objeto da janela por "valor", mas o Rust exige "referência" (`&Window`) para funções de manipulação.
-- **Solução:** Refatoramos todas as chamadas para usar o operador de referência e garantimos a extração correta da Window interna a partir da WebviewWindow via `.as_ref().window()`.
-
-### ⚔️ A Insegurança do Kernel (SetPropW Safety)
-- **Desafio:** Erro `E0133` (Call to unsafe function).
-- **Causa:** O uso de `SetPropW` do Windows para marcar janelas (ex: `is_handle`) é uma operação de memória direta.
-- **Solução:** Envolvemos as chamadas em blocos `unsafe` controlados e ajustamos a tipagem de dados para `Some(HANDLE)`, atendendo aos rigorosos padrões de segurança do Rust moderno.
+- **Desafio:** Erros constantes de compilação `E0308` ao manipular múltiplas janelas.
+- **Solução:** Refatoramos para usar referências explícitas (`&Window`) e extração correta via `.as_ref().window()`.
 
 ### ⚔️ O Fantasma do Windows 7 (Aero Fallback)
-- **Desafio:** Ao tentar remover sombras agressivamente, as janelas voltavam ao visual "Aero" do Windows 7.
-- **Causa:** Desativar o `Non-Client Rendering` quebra a composição moderna do Windows 11.
-- **Solução:** Mantivemos a política de renderização ativa, mas forçamos as cores das bordas e do título para transparência absoluta (`0xFFFFFFFE`).
+- **Desafio:** Desativar sombras causava retorno ao visual "Aero" legado.
+- **Solução:** Mantivemos a política de renderização moderna, mas pintamos as bordas de transparente absoluta.
 
-### ⚔️ O Menu Invisível (Race Conditions)
-- **Desafio:** O menu de contexto abria vazio ou travado na última posição.
-- **Causa:** O React não detectava o tipo da janela rápido o suficiente via URL, e o Rust estava destruindo/criando janelas em loop.
-- **Solução:** Mudamos a detecção para `appWindow.label` (instantânea) e transformamos o menu em uma janela persistente que apenas se move e se mostra, eliminando o custo de criação.
+### ⚔️ O Conflito de Trilhos (Drag Conflict)
+- **Desafio:** Tentar forçar um trilho invisível via Rust causava travamento no `startDragging` nativo.
+- **Solução:** Consolidamos a alça como uma peça fixa de alta performance para o arraste global do app.
 
-### ⚔️ O Erro de Escala (DPI Bug)
-- **Desafio:** Em monitores 4K, a alça e o menu apareciam em lugares aleatórios.
-- **Causa:** O JavaScript enviava coordenadas lógicas, mas o Windows trabalha com coordenadas físicas.
-- **Solução:** Implementamos `GetCursorPos` diretamente no Rust. O menu agora nasce na ponta do mouse em nível de hardware, ignorando qualquer erro de escala do navegador.
+### ⚔️ O Bug de Escala (DPI Bug)
+- **Desafio:** Menus apareciam deslocados em monitores de alta resolução.
+- **Solução:** Rust captura a posição física do cursor diretamente via `GetCursorPos` da Win32 API.
 
 ---
 
-## 🎼 6. Orquestrador e Persistência
-- **Zustand Brain:** Estado global para gerenciar instâncias de módulos e foco.
-- **Persistent Memory:** Salvamento manual de configurações (`handle_side.txt`, `backdrop_type.txt`) e uso do `window-state` para lembrar tamanhos e posições X/Y.
+## 💾 6. Orquestrador e Persistência de Longo Prazo
+- **Zustand Brain:** Gerencia instâncias de módulos e o estado do Tiling Layout.
+- **Disk Configs:** Salvamos `handle_side.txt` e `backdrop_type.txt` no diretório de configuração do usuário para persistir escolhas visuais e de interface além do LocalStorage.
+- **Window State Plugin:** Salva e restaura a posição X/Y e tamanho de todas as janelas do ecossistema.
 
 ---
 *Assinado: O Arquiteto do Sistema — Social OS Core Team*
