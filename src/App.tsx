@@ -10,7 +10,6 @@ function App() {
   const [effect, setEffect] = useState<"Mica" | "Acrylic" | "None">("Mica");
   const [lastMessage, setLastMessage] = useState<string>("");
   
-  // Detecção via Label Nativa
   const isMenu = appWindow.label === "context_menu";
   const isHandle = appWindow.label === "handle_win";
 
@@ -22,14 +21,7 @@ function App() {
 
     const handleGlobalContextMenu = async (e: MouseEvent) => {
       e.preventDefault();
-      // Somente janelas normais podem chamar o menu
-      if (!isMenu && !isHandle) {
-        try {
-          await invoke("trigger_context_menu");
-        } catch (err) {
-          console.error("Menu trigger failed:", err);
-        }
-      }
+      await invoke("trigger_context_menu");
     };
 
     window.addEventListener("contextmenu", handleGlobalContextMenu);
@@ -37,7 +29,7 @@ function App() {
       unlisten.then((f) => f());
       window.removeEventListener("contextmenu", handleGlobalContextMenu);
     };
-  }, [isMenu, isHandle]);
+  }, []);
 
   const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
     setEffect(newEffect);
@@ -45,47 +37,54 @@ function App() {
     if (isMenu) await appWindow.hide();
   };
 
-  const sendHello = async () => {
-    await emit("hello-event", { message: `Hello from ${appWindow.label}!` });
+  const setSide = async (side: number) => {
+    await invoke("set_handle_side", { side });
     if (isMenu) await appWindow.hide();
   };
 
-  // --- RENDERIZAÇÃO DA ALÇA ---
+  const handleDragStart = async (e: React.MouseEvent) => {
+    if (e.button === 0) { 
+      await invoke("start_drag_main");
+    }
+  };
+
+  // 1. ALÇA
   if (isHandle) {
     return (
-      <div 
-        className="handle-layout" 
-        onMouseDown={async (e) => { if (e.button === 0) await invoke("start_drag_main"); }}
-      >
+      <div className="handle-layout" onMouseDown={handleDragStart}>
         <div className="handle-dot" />
       </div>
     );
   }
 
-  // --- RENDERIZAÇÃO DO MENU ---
+  // 2. MENU (OPÇÃO DE DESATIVAR RESTAURADA)
   if (isMenu) {
     return (
       <div className="menu-box">
-        <div className="menu-header">Menu Social OS</div>
-        <div className="menu-content">
-          <button onClick={() => changeEffect("Mica")}>Mica Mode</button>
-          <button onClick={() => changeEffect("Acrylic")}>Acrylic Mode</button>
-          <div className="divider" />
-          <button onClick={sendHello} className="accent">Broadcast Hello</button>
-          <button onClick={() => appWindow.hide()} style={{ opacity: 0.3, marginTop: '10px' }}>Fechar</button>
+        <div className="menu-header">Posição da Alça</div>
+        <div className="menu-grid">
+          <button onClick={() => setSide(0)}>Topo</button>
+          <button onClick={() => setSide(1)}>Base</button>
+          <button onClick={() => setSide(2)}>Esquerda</button>
+          <button onClick={() => setSide(3)}>Direita</button>
         </div>
+        <div className="divider" />
+        <div className="menu-header">Estilo Visual</div>
+        <button onClick={() => changeEffect("Mica")}>Mica</button>
+        <button onClick={() => changeEffect("Acrylic")}>Acrylic</button>
+        <button onClick={() => changeEffect("None")} style={{ color: '#ff4d4d' }}>Desabilitar Efeitos</button>
+        <button onClick={() => appWindow.close()} style={{ opacity: 0.3, marginTop: 'auto' }}>Fechar</button>
       </div>
     );
   }
 
-  // --- RENDERIZAÇÃO NORMAL ---
   return (
     <div className="main-wrapper">
       <main className="container">
         <h1>{appWindow.label === "main" ? "Principal" : "Janela de Teste"}</h1>
         {lastMessage && <div className="toast">📩 {lastMessage}</div>}
         <p>DNA Ativo • Visual Brutalista</p>
-        <div className="info">Clique direito para menu limpo</div>
+        <div className="info">Clique direito na alça para mudar posição</div>
       </main>
     </div>
   );

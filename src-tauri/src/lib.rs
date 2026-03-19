@@ -1,5 +1,7 @@
 use tauri::{Manager, Runtime, Window, WebviewWindow, Listener};
 use window_vibrancy::{apply_mica, clear_vibrancy};
+use std::fs;
+use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -16,6 +18,27 @@ pub enum BackdropType { Mica, Acrylic, None }
 
 #[cfg(target_os = "windows")]
 static CURRENT_BACKDROP_TYPE: AtomicI32 = AtomicI32::new(2);
+#[cfg(target_os = "windows")]
+static HANDLE_SIDE: AtomicI32 = AtomicI32::new(0); 
+
+// --- SISTEMA DE PERSISTÊNCIA ---
+fn get_config_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> PathBuf {
+    let path = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if !path.exists() { let _ = fs::create_dir_all(&path); }
+    path
+}
+
+fn save_setting<R: Runtime>(app: &tauri::AppHandle<R>, filename: &str, value: i32) {
+    let mut path = get_config_dir(app);
+    path.push(filename);
+    let _ = fs::write(path, value.to_string());
+}
+
+fn load_setting<R: Runtime>(app: &tauri::AppHandle<R>, filename: &str, default: i32) -> i32 {
+    let mut path = get_config_dir(app);
+    path.push(filename);
+    fs::read_to_string(path).unwrap_or_default().parse().unwrap_or(default)
+}
 
 #[cfg(target_os = "windows")]
 pub fn apply_visual_dna<R: Runtime>(window: &Window<R>, effect: BackdropType) {
@@ -25,6 +48,7 @@ pub fn apply_visual_dna<R: Runtime>(window: &Window<R>, effect: BackdropType) {
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &1i32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &0xFFFFFFFEu32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND.0 as *const _ as *const _, 4);
+        
         let backdrop_type = match effect {
             BackdropType::Mica => { let _ = apply_mica(window, None); 2i32 },
             BackdropType::Acrylic => { let _ = clear_vibrancy(window); 3i32 },
@@ -61,6 +85,7 @@ fn reapply_raw_attributes(hwnd: HWND) {
         let effect_val = CURRENT_BACKDROP_TYPE.load(Ordering::Relaxed);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &1i32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &0xFFFFFFFEu32 as *const _ as *const _, 4);
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &0xFFFFFFFEu32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND.0 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &effect_val as *const _ as *const _, 4);
     }
@@ -78,10 +103,24 @@ fn setup_backdrop_persistence(hwnd: HWND) {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn calculate_handle_pos<R: Runtime>(main_win: &Window<R>, handle_win: &Window<R>, side: i32) -> (i32, i32) {
+    let m_pos = main_win.outer_position().unwrap_or_default();
+    let m_size = main_win.outer_size().unwrap_or_default();
+    let h_size = handle_win.outer_size().unwrap_or_default();
+    match side {
+        1 => (m_pos.x + (m_size.width as i32 / 2) - (h_size.width as i32 / 2), m_pos.y + m_size.height as i32 + 5),
+        2 => (m_pos.x - h_size.width as i32 - 5, m_pos.y + (m_size.height as i32 / 2) - (h_size.height as i32 / 2)),
+        3 => (m_pos.x + m_size.width as i32 + 5, m_pos.y + (m_size.height as i32 / 2) - (h_size.height as i32 / 2)),
+        _ => (m_pos.x + (m_size.width as i32 / 2) - (h_size.width as i32 / 2), m_pos.y - h_size.height as i32 - 5),
+    }
+}
+
 #[tauri::command]
 fn apply_window_effect<R: Runtime>(app: tauri::AppHandle<R>, effect: BackdropType) {
     let effect_val = match effect { BackdropType::Acrylic => 3, BackdropType::Mica => 2, BackdropType::None => 1 };
     CURRENT_BACKDROP_TYPE.store(effect_val, Ordering::SeqCst);
+    save_setting(&app, "backdrop_type.txt", effect_val); // SALVAR EFEITO
     for window in app.webview_windows().values() {
         #[cfg(target_os = "windows")]
         apply_visual_dna(&window.as_ref().window(), effect);
@@ -95,7 +134,6 @@ fn trigger_context_menu<R: Runtime>(app: tauri::AppHandle<R>) {
             let mut point = POINT { x: 0, y: 0 };
             let _ = GetCursorPos(&mut point);
             let _ = menu.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: point.x, y: point.y }));
-            let _ = menu.set_resizable(false); // Garantir resize false ao mostrar
             let _ = menu.show();
             let _ = menu.set_focus();
         }
@@ -107,29 +145,35 @@ fn start_drag_main<R: Runtime>(app: tauri::AppHandle<R>) {
     if let Some(main) = app.get_webview_window("main") { let _ = main.start_dragging(); }
 }
 
+#[tauri::command]
+fn set_handle_side<R: Runtime>(app: tauri::AppHandle<R>, side: i32) {
+    #[cfg(target_os = "windows")]
+    {
+        HANDLE_SIDE.store(side, Ordering::SeqCst);
+        save_setting(&app, "handle_side.txt", side); // SALVAR LADO
+        if let (Some(main), Some(handle)) = (app.get_webview_window("main"), app.get_webview_window("handle_win")) {
+            if side >= 2 { let _ = handle.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 20, height: 150 })); }
+            else { let _ = handle.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 150, height: 20 })); }
+            let (nx, ny) = calculate_handle_pos(&main.as_ref().window(), &handle.as_ref().window(), side);
+            let _ = handle.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: nx, y: ny }));
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::Focused(true) => {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let effect_val = CURRENT_BACKDROP_TYPE.load(Ordering::Relaxed);
-                        let effect = match effect_val { 3 => BackdropType::Acrylic, 2 => BackdropType::Mica, _ => BackdropType::None };
-                        apply_visual_dna(window, effect);
-                    }
-                }
-                tauri::WindowEvent::Moved(pos) => {
+                tauri::WindowEvent::Moved(_) => {
                     #[cfg(target_os = "windows")]
                     if window.label() == "main" {
                         if let Some(h) = window.app_handle().get_webview_window("handle_win") {
-                            let main_size = window.outer_size().unwrap();
-                            let h_size = h.outer_size().unwrap();
-                            let cx = pos.x + (main_size.width as i32 / 2) - (h_size.width as i32 / 2);
-                            let ty = pos.y - h_size.height as i32 - 5;
-                            let _ = h.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: cx, y: ty }));
+                            let side = HANDLE_SIDE.load(Ordering::Relaxed);
+                            let (nx, ny) = calculate_handle_pos(window, &h.as_ref().window(), side);
+                            let _ = h.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: nx, y: ny }));
                         }
                     }
                 }
@@ -140,47 +184,49 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let handle = app.handle().clone();
-            app.listen("drag-main-window", move |_| {
-                if let Some(main_win) = handle.get_webview_window("main") { let _ = main_win.start_dragging(); }
-            });
+            let h_handle = app.handle();
+            // CARREGAR CONFIGURAÇÕES SALVAS
+            let side = load_setting(&h_handle, "handle_side.txt", 0);
+            let effect_val = load_setting(&h_handle, "backdrop_type.txt", 2);
+            
+            #[cfg(target_os = "windows")]
+            {
+                HANDLE_SIDE.store(side, Ordering::SeqCst);
+                CURRENT_BACKDROP_TYPE.store(effect_val, Ordering::SeqCst);
+            }
 
-            // 1. PRINCIPAL
+            let effect = match effect_val { 3 => BackdropType::Acrylic, 2 => BackdropType::Mica, _ => BackdropType::None };
+
             let main = app.get_webview_window("main").unwrap();
             #[cfg(target_os = "windows")]
-            apply_visual_dna(&main.as_ref().window(), BackdropType::Mica);
+            apply_visual_dna(&main.as_ref().window(), effect);
 
-            // 2. TESTE
             let test = tauri::WebviewWindowBuilder::new(app, "test_dna", tauri::WebviewUrl::App("index.html".into()))
                 .title("Teste").inner_size(400.0, 300.0).decorations(false).transparent(true).shadow(false).build().unwrap();
             #[cfg(target_os = "windows")]
-            apply_visual_dna(&test.as_ref().window(), BackdropType::Mica);
+            apply_visual_dna(&test.as_ref().window(), effect);
 
-            // 3. ALÇA
-            let m_pos = main.outer_position().unwrap();
-            let m_size = main.outer_size().unwrap();
-            let h_size = tauri::PhysicalSize { width: 100, height: 24 };
-            let cx = m_pos.x + (m_size.width as i32 / 2) - (h_size.width as i32 / 2);
-            let ty = m_pos.y - h_size.height as i32 - 5;
+            let h_w = if side >= 2 { 20 } else { 150 };
+            let h_h = if side >= 2 { 150 } else { 20 };
 
             let handle_win = tauri::WebviewWindowBuilder::new(app, "handle_win", tauri::WebviewUrl::App("index.html?type=handle".into()))
-                .title("Handle").inner_size(h_size.width as f64, h_size.height as f64)
-                .position(cx as f64, ty as f64).decorations(false).transparent(true).shadow(false).always_on_top(true).resizable(false).build().unwrap();
-            let _ = handle_win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: cx, y: ty }));
+                .title("Handle").inner_size(h_w as f64, h_h as f64).decorations(false).transparent(true).shadow(false).always_on_top(true).resizable(false).build().unwrap();
+            
             #[cfg(target_os = "windows")]
-            apply_visual_dna(&handle_win.as_ref().window(), BackdropType::Mica);
+            {
+                let (nx, ny) = calculate_handle_pos(&main.as_ref().window(), &handle_win.as_ref().window(), side);
+                let _ = handle_win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: nx, y: ny }));
+                apply_visual_dna(&handle_win.as_ref().window(), effect);
+            }
 
-            // 4. MENU (RESIZE FALSE)
             let context_menu = tauri::WebviewWindowBuilder::new(app, "context_menu", tauri::WebviewUrl::App("index.html?type=menu".into()))
-                .title("Menu").inner_size(180.0, 240.0).decorations(false).transparent(true).shadow(false).always_on_top(true).visible(false)
-                .resizable(false) // Desativar resize aqui
-                .build().unwrap();
+                .title("Menu").inner_size(180.0, 320.0).decorations(false).transparent(true).shadow(false).always_on_top(true).visible(false).resizable(false).build().unwrap();
             #[cfg(target_os = "windows")]
-            apply_visual_dna(&context_menu.as_ref().window(), BackdropType::Mica);
+            apply_visual_dna(&context_menu.as_ref().window(), effect);
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![apply_window_effect, trigger_context_menu, start_drag_main])
+        .invoke_handler(tauri::generate_handler![apply_window_effect, trigger_context_menu, start_drag_main, set_handle_side])
         .run(tauri::generate_context!())
         .expect("error");
 }

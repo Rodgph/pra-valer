@@ -32,34 +32,32 @@ body { margin: 0; background: transparent; overflow: hidden; }
   border-radius: 2px;
 }
 
-/* MENU (Janela context_menu) */
+/* MENU */
 .menu-box {
   width: 100vw; height: 100vh;
-  background: rgba(25, 25, 25, 0.8);
+  background: rgba(25, 25, 25, 0.85);
   backdrop-filter: blur(40px) saturate(1.8);
   display: flex; flex-direction: column;
-  padding: 10px; box-sizing: border-box;
+  padding: 12px; box-sizing: border-box;
   border-radius: 8px;
 }
 
 .menu-header {
-  font-size: 10px; text-transform: uppercase; opacity: 0.5;
-  padding: 8px; letter-spacing: 2px; font-weight: 600;
-}
-
-.menu-content {
-  display: flex; flex-direction: column; gap: 2px;
+  font-size: 9px; text-transform: uppercase; opacity: 0.5;
+  padding: 8px 4px; letter-spacing: 1px; font-weight: bold;
 }
 
 .menu-box button {
-  background: transparent; border: none !important; color: white;
+  background: rgba(255, 255, 255, 0.05);
+  border: none !important; color: white;
   padding: 12px; text-align: left; border-radius: 4px;
-  cursor: pointer; font-size: 13px; transition: background 0.1s;
+  cursor: pointer; font-size: 13px; margin-bottom: 2px;
 }
 
-.menu-box button:hover { background: rgba(255, 255, 255, 0.1); }
-.menu-box .accent { color: #0078d4; font-weight: bold; }
-.divider { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 6px 0; }
+.menu-box button:hover { background: rgba(255, 255, 255, 0.12); }
+.menu-box button.active-accent { background: #0078d433; color: #0078d4; font-weight: bold; }
+
+.divider { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 8px 0; }
 
 /* UTILS */
 .toast { background: #0078d4; padding: 10px 20px; border-radius: 6px; margin-bottom: 15px; }
