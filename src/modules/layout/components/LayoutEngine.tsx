@@ -1,24 +1,19 @@
 import React, { useRef, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useLayout } from "../store";
 import { LayoutNode } from "../types";
 import styles from "./LayoutEngine.module.css";
 
 const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
-  const { splitPane, updateSplitRatio } = useLayout();
+  const { updateSplitRatio } = useLayout();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleResize = useCallback((e: MouseEvent) => {
     if (!containerRef.current || node.type !== "split") return;
-
     const rect = containerRef.current.getBoundingClientRect();
-    let newRatio = 0.5;
-
-    if (node.direction === "horizontal") {
-      newRatio = (e.clientX - rect.left) / rect.width;
-    } else {
-      newRatio = (e.clientY - rect.top) / rect.height;
-    }
-
+    const newRatio = node.direction === "horizontal" 
+      ? (e.clientX - rect.left) / rect.width 
+      : (e.clientY - rect.top) / rect.height;
     updateSplitRatio(node.id, newRatio);
   }, [node, updateSplitRatio]);
 
@@ -33,6 +28,15 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
     window.addEventListener("mouseup", stopResize);
     document.body.style.cursor = node.type === "split" && node.direction === "horizontal" ? "col-resize" : "row-resize";
   }, [handleResize, stopResize, node]);
+
+  const handleContextMenu = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (node.type === "pane") {
+      // Disparar menu tipo LAYOUT passando o ID do painel alvo
+      await invoke("trigger_context_menu", { menuType: "LAYOUT", targetId: node.id });
+    }
+  };
 
   if (node.type === "split") {
     const isHorizontal = node.direction === "horizontal";
@@ -54,16 +58,13 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
   }
 
   return (
-    <div className={styles.pane}>
+    <div className={styles.pane} onContextMenu={handleContextMenu}>
       {node.moduleId ? (
         <div className={styles.moduleContent}>Módulo: {node.moduleId}</div>
       ) : (
         <div className={styles.emptyPane}>
           <p>Painel Vazio</p>
-          <div className={styles.actions}>
-            <button onClick={() => splitPane(node.id, "horizontal")}>Dividir H</button>
-            <button onClick={() => splitPane(node.id, "vertical")}>Dividir V</button>
-          </div>
+          <div className={styles.info}>Clique direito para opções</div>
         </div>
       )}
     </div>
