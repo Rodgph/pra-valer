@@ -32,7 +32,7 @@ const Nav: React.FC = () => {
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     // Disparar menu tipo NAV
-    await invoke("trigger_context_menu", { menuType: "NAV" });
+    await invoke("trigger_context_menu", { args: { menuType: "NAV" } });
   };
 
   return (

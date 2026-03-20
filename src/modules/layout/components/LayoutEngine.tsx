@@ -34,7 +34,7 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
     e.stopPropagation();
     if (node.type === "pane") {
       // Disparar menu tipo LAYOUT passando o ID do painel alvo
-      await invoke("trigger_context_menu", { menuType: "LAYOUT", targetId: node.id });
+      await invoke("trigger_context_menu", { args: { menuType: "LAYOUT", targetId: node.id } });
     }
   };
 

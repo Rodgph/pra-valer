@@ -3,6 +3,7 @@ use window_vibrancy::{apply_mica, clear_vibrancy};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use serde::Deserialize;
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -22,10 +23,15 @@ static CURRENT_BACKDROP_TYPE: AtomicI32 = AtomicI32::new(2);
 #[cfg(target_os = "windows")]
 static HANDLE_SIDE: AtomicI32 = AtomicI32::new(0); 
 
-struct MenuConfig {
-    menu_type: String,
-    target_id: Option<String>,
-}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContextMenuArgs { menu_type: String, target_id: Option<String> }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GlobalEventArgs { event: String, payload: Option<serde_json::Value> }
+
+struct MenuConfig { menu_type: String, target_id: Option<String> }
 static ACTIVE_MENU_CONFIG: Mutex<Option<MenuConfig>> = Mutex::new(None);
 
 fn get_config_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> PathBuf {
@@ -53,6 +59,7 @@ pub fn apply_visual_dna<R: Runtime>(window: &Window<R>, effect: BackdropType) {
     unsafe {
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &1i32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &0xFFFFFFFEu32 as *const _ as *const _, 4);
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &0xFFFFFFFEu32 as *const _ as *const _, 4);
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND.0 as *const _ as *const _, 4);
         let backdrop_type = match effect {
             BackdropType::Mica => { let _ = apply_mica(window, None); 2i32 },
@@ -133,17 +140,17 @@ fn apply_window_effect<R: Runtime>(app: tauri::AppHandle<R>, effect: BackdropTyp
 }
 
 #[tauri::command]
-fn trigger_context_menu<R: Runtime>(app: tauri::AppHandle<R>, menu_type: String, target_id: Option<String>) {
+fn trigger_context_menu<R: Runtime>(app: tauri::AppHandle<R>, args: ContextMenuArgs) {
     {
         let mut cache = ACTIVE_MENU_CONFIG.lock().unwrap();
-        *cache = Some(MenuConfig { menu_type: menu_type.clone(), target_id: target_id.clone() });
+        *cache = Some(MenuConfig { menu_type: args.menu_type.clone(), target_id: args.target_id.clone() });
     }
     if let Some(menu) = app.get_webview_window("context_menu") {
         unsafe {
             let mut point = POINT { x: 0, y: 0 };
             let _ = GetCursorPos(&mut point);
             let _ = menu.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: point.x, y: point.y }));
-            let _ = app.emit("setup-menu", serde_json::json!({ "type": menu_type, "targetId": target_id }));
+            let _ = app.emit("setup-menu", serde_json::json!({ "type": args.menu_type, "targetId": args.target_id }));
             let _ = menu.show();
             let _ = menu.set_focus();
         }
@@ -160,10 +167,9 @@ fn get_active_menu_config() -> serde_json::Value {
     }
 }
 
-// COMANDO PARA SINCRONIZAR EVENTOS ENTRE JANELAS (BYPASS PERMISSÕES JS)
 #[tauri::command]
-fn emit_global_event<R: Runtime>(app: tauri::AppHandle<R>, event: String) {
-    let _ = app.emit(&event, serde_json::json!({}));
+fn emit_global_event<R: Runtime>(app: tauri::AppHandle<R>, args: GlobalEventArgs) {
+    let _ = app.emit(&args.event, args.payload.unwrap_or(serde_json::json!({})));
 }
 
 #[tauri::command]
