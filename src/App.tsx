@@ -122,6 +122,30 @@ function App() {
             }}>
               Alternar Window Controls
             </button>
+            <button onClick={async () => { 
+              await appWindow.hide(); 
+              await invoke("emit_global_event", { args: { event: "toggle-telemetry" } }); 
+            }}>
+              Alternar Telemetria
+            </button>
+            
+            <div className="divider" />
+            <div className="menu-header">Intervalo Telemetria</div>
+            <div className="menu-grid">
+              <button onClick={async () => { 
+                await appWindow.hide(); 
+                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 500 } } }); 
+              }}>500ms</button>
+              <button onClick={async () => { 
+                await appWindow.hide(); 
+                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 1000 } } }); 
+              }}>1s</button>
+              <button onClick={async () => { 
+                await appWindow.hide(); 
+                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 3000 } } }); 
+              }}>3s</button>
+            </div>
+
             <div className="divider" />
             <button onClick={() => appWindow.close()} style={{ color: '#ff4d4d' }}>✕ Sair do Sistema</button>
           </>

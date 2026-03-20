@@ -7,9 +7,9 @@ const appWindow = getCurrentWindow();
 const WindowControls: React.FC = () => {
   return (
     <div className={styles.windowControls}>
-      <button className={styles.winBtn} onClick={() => appWindow.minimize()}>⚊</button>
-      <button className={styles.winBtn} onClick={() => appWindow.toggleMaximize()}>🔳</button>
-      <button className={styles.winBtnClose} onClick={() => appWindow.close()}>✕</button>
+      <button className={styles.winBtnOpen} onClick={() => appWindow.minimize()}></button>
+      <button className={styles.winBtnMax} onClick={() => appWindow.toggleMaximize()}></button>
+      <button className={styles.winBtnClose} onClick={() => appWindow.close()}></button>
     </div>
   );
 };

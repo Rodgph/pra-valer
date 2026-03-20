@@ -1,19 +1,44 @@
-use tauri::{Manager, Runtime, Window, WebviewWindow, Emitter};
+use tauri::{Manager, Runtime, Window, Emitter};
 use window_vibrancy::{apply_mica, clear_vibrancy};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use serde::Deserialize;
+use sysinfo::{System, Networks};
+use windows::core::{Interface, w};
+use windows::Win32::Graphics::Dxgi::*;
+use windows::Win32::System::Performance::*;
+use dlopen2::wrapper::{Container, WrapperApi};
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicI32, Ordering};
 #[cfg(target_os = "windows")]
 use windows::{
-    core::w,
     Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM, HANDLE, POINT},
     Win32::Graphics::Dwm::*,
     Win32::UI::WindowsAndMessaging::*,
 };
+
+#[derive(WrapperApi)]
+struct NvmlApi {
+    #[dlopen2_name = "nvmlInit_v2"]
+    init: unsafe extern "C" fn() -> i32,
+    #[dlopen2_name = "nvmlDeviceGetHandleByIndex_v2"]
+    get_handle: unsafe extern "C" fn(index: u32, handle: *mut usize) -> i32,
+    #[dlopen2_name = "nvmlDeviceGetUtilizationRates"]
+    get_utilization: unsafe extern "C" fn(handle: usize, utilization: *mut NvmlUtilization) -> i32,
+    #[dlopen2_name = "nvmlDeviceGetMemoryInfo"]
+    get_memory: unsafe extern "C" fn(handle: usize, memory: *mut NvmlMemory) -> i32,
+    #[dlopen2_name = "nvmlShutdown"]
+    shutdown: unsafe extern "C" fn() -> i32,
+}
+
+#[repr(C)]
+struct NvmlUtilization { gpu: u32, memory: u32 }
+#[repr(C)]
+struct NvmlMemory { total: u64, free: u64, used: u64 }
+
+static NVML_CONTAINER: Mutex<Option<Container<NvmlApi>>> = Mutex::new(None);
 
 #[derive(serde::Deserialize, Clone, Copy, Debug)]
 pub enum BackdropType { Mica, Acrylic, None }
@@ -33,6 +58,33 @@ struct GlobalEventArgs { event: String, payload: Option<serde_json::Value> }
 
 struct MenuConfig { menu_type: String, target_id: Option<String> }
 static ACTIVE_MENU_CONFIG: Mutex<Option<MenuConfig>> = Mutex::new(None);
+static SYSTEM_STATS: Mutex<Option<System>> = Mutex::new(None);
+static NETWORK_STATS: Mutex<Option<Networks>> = Mutex::new(None);
+
+struct SendRaw<T>(T);
+unsafe impl<T> Send for SendRaw<T> {}
+unsafe impl<T> Sync for SendRaw<T> {}
+
+static PDH_GPU_QUERY: Mutex<Option<SendRaw<PDH_HQUERY>>> = Mutex::new(None);
+static PDH_GPU_USAGE_COUNTER: Mutex<Option<SendRaw<PDH_HCOUNTER>>> = Mutex::new(None);
+
+const ERROR_SUCCESS: u32 = 0;
+
+#[derive(serde::Serialize, Default, Clone)]
+struct GpuStats {
+    name: String,
+    usage: f32,
+    vram_used: f32,
+    vram_total: f32,
+}
+
+#[derive(serde::Serialize)]
+struct SystemStats {
+    cpu_usage: f32,
+    ram_usage: f32,
+    net_usage: f32,
+    gpu: GpuStats,
+}
 
 fn get_config_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> PathBuf {
     let path = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -128,6 +180,61 @@ fn calculate_handle_pos<R: Runtime>(main_win: &Window<R>, handle_win: &Window<R>
     }
 }
 
+#[cfg(target_os = "windows")]
+fn get_nvidia_telemetry() -> Option<GpuStats> {
+    unsafe {
+        let mut lock = NVML_CONTAINER.lock().unwrap();
+        if lock.is_none() {
+            // Tenta carregar a DLL do driver NVIDIA no Windows
+            if let Ok(container) = Container::<NvmlApi>::load("nvml.dll") {
+                if (container.init)() == 0 { *lock = Some(container); }
+            }
+        }
+        
+        if let Some(api) = lock.as_ref() {
+            let mut handle: usize = 0;
+            if (api.get_handle)(0, &mut handle) == 0 {
+                let mut util = NvmlUtilization { gpu: 0, memory: 0 };
+                let mut mem = NvmlMemory { total: 0, free: 0, used: 0 };
+                
+                let res_u = (api.get_utilization)(handle, &mut util);
+                let res_m = (api.get_memory)(handle, &mut mem);
+                
+                if res_u == 0 && res_m == 0 {
+                    return Some(GpuStats {
+                        name: "NVIDIA GPU".to_string(),
+                        usage: util.gpu as f32,
+                        vram_used: mem.used as f32 / (1024.0 * 1024.0 * 1024.0),
+                        vram_total: mem.total as f32 / (1024.0 * 1024.0 * 1024.0),
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn get_fallback_gpu_stats() -> GpuStats {
+    let mut stats = GpuStats::default();
+    unsafe {
+        if let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() {
+            let mut i = 0;
+            while let Ok(adapter) = factory.EnumAdapters1(i) {
+                i += 1;
+                let desc = adapter.GetDesc1().unwrap_or_default();
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0 { continue; }
+                let total = desc.DedicatedVideoMemory as f32 / (1024.0 * 1024.0 * 1024.0);
+                if total > stats.vram_total {
+                    stats.name = String::from_utf16_lossy(&desc.Description).trim_matches(char::from(0)).to_string();
+                    stats.vram_total = total;
+                }
+            }
+        }
+    }
+    stats
+}
+
 #[tauri::command]
 fn apply_window_effect<R: Runtime>(app: tauri::AppHandle<R>, effect: BackdropType) {
     let effect_val = match effect { BackdropType::Acrylic => 3, BackdropType::Mica => 2, BackdropType::None => 1 };
@@ -192,6 +299,39 @@ fn set_handle_side<R: Runtime>(app: tauri::AppHandle<R>, side: i32) {
     }
 }
 
+#[tauri::command]
+fn get_system_stats() -> SystemStats {
+    let mut lock = SYSTEM_STATS.lock().unwrap();
+    if lock.is_none() { *lock = Some(System::new_all()); }
+    
+    let mut net_lock = NETWORK_STATS.lock().unwrap();
+    if net_lock.is_none() { *net_lock = Some(Networks::new_with_refreshed_list()); }
+
+    let mut net_usage = 0.0;
+    if let Some(nets) = net_lock.as_mut() {
+        nets.refresh(true);
+        for (_, data) in nets.iter() {
+            net_usage += (data.received() as f32 + data.transmitted() as f32) / 1024.0;
+        }
+    }
+    
+    let gpu_stats = get_nvidia_telemetry().unwrap_or_else(|| get_fallback_gpu_stats());
+
+    if let Some(sys) = lock.as_mut() {
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        
+        SystemStats {
+            cpu_usage: sys.global_cpu_usage(),
+            ram_usage: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
+            net_usage,
+            gpu: gpu_stats,
+        }
+    } else {
+        SystemStats { cpu_usage: 0.0, ram_usage: 0.0, net_usage: 0.0, gpu: GpuStats::default() }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -228,10 +368,17 @@ pub fn run() {
             let main = app.get_webview_window("main").unwrap();
             #[cfg(target_os = "windows")]
             apply_visual_dna(&main.as_ref().window(), effect);
+            
+            // Warm-up
+            let mut sys = System::new_all();
+            sys.refresh_cpu_usage();
+            *SYSTEM_STATS.lock().unwrap() = Some(sys);
+
             let test = tauri::WebviewWindowBuilder::new(app, "test_dna", tauri::WebviewUrl::App("index.html".into()))
                 .title("Teste").inner_size(400.0, 300.0).decorations(false).transparent(true).shadow(false).build().unwrap();
             #[cfg(target_os = "windows")]
             apply_visual_dna(&test.as_ref().window(), effect);
+            
             let h_w = if side >= 2 { 20 } else { 150 };
             let h_h = if side >= 2 { 150 } else { 20 };
             let handle_win = tauri::WebviewWindowBuilder::new(app, "handle_win", tauri::WebviewUrl::App("index.html?type=handle".into()))
@@ -248,7 +395,15 @@ pub fn run() {
             apply_visual_dna(&context_menu.as_ref().window(), effect);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![apply_window_effect, trigger_context_menu, start_drag_main, set_handle_side, get_active_menu_config, emit_global_event])
+        .invoke_handler(tauri::generate_handler![
+            apply_window_effect, 
+            trigger_context_menu, 
+            start_drag_main, 
+            set_handle_side, 
+            get_active_menu_config, 
+            emit_global_event,
+            get_system_stats
+        ])
         .run(tauri::generate_context!())
         .expect("error");
 }

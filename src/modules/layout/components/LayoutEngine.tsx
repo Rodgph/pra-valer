@@ -4,6 +4,8 @@ import { useLayout } from "../store";
 import { LayoutNode } from "../types";
 import styles from "./LayoutEngine.module.css";
 
+import { moduleRegistry } from "../../orchestrator/registry";
+
 const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
   const { updateSplitRatio } = useLayout();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -21,22 +23,31 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
     window.removeEventListener("mousemove", handleResize);
     window.removeEventListener("mouseup", stopResize);
     document.body.style.cursor = "default";
+    document.body.style.userSelect = "auto";
   }, [handleResize]);
 
   const startResize = useCallback(() => {
     window.addEventListener("mousemove", handleResize);
     window.addEventListener("mouseup", stopResize);
     document.body.style.cursor = node.type === "split" && node.direction === "horizontal" ? "col-resize" : "row-resize";
+    document.body.style.userSelect = "none";
   }, [handleResize, stopResize, node]);
 
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (node.type === "pane") {
-      // Disparar menu tipo LAYOUT passando o ID do painel alvo
-      await invoke("trigger_context_menu", { args: { menuType: "LAYOUT", targetId: node.id } });
+      await invoke("trigger_context_menu", { 
+        args: { 
+          menuType: "LAYOUT", 
+          targetId: node.id,
+          moduleId: node.moduleId 
+        } 
+      });
     }
   };
+
+  const ModuleComponent = node.moduleId ? moduleRegistry[node.moduleId]?.component : null;
 
   if (node.type === "split") {
     const isHorizontal = node.direction === "horizontal";
@@ -46,11 +57,11 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
         className={styles.splitContainer} 
         style={{ flexDirection: isHorizontal ? "row" : "column" }}
       >
-        <div style={{ flex: node.ratio, overflow: 'hidden' }}>
+        <div style={{ flex: node.ratio, overflow: 'hidden', position: 'relative' }}>
           <NodeRenderer node={node.first} />
         </div>
         <div className={styles.resizer} onMouseDown={startResize} />
-        <div style={{ flex: 1 - node.ratio, overflow: 'hidden' }}>
+        <div style={{ flex: 1 - node.ratio, overflow: 'hidden', position: 'relative' }}>
           <NodeRenderer node={node.second} />
         </div>
       </div>
@@ -59,7 +70,11 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
 
   return (
     <div className={styles.pane} onContextMenu={handleContextMenu}>
-      {node.moduleId ? (
+      {ModuleComponent ? (
+        <div className={styles.moduleWrapper}>
+          <ModuleComponent />
+        </div>
+      ) : node.moduleId ? (
         <div className={styles.moduleContent}>Módulo: {node.moduleId}</div>
       ) : (
         <div className={styles.emptyPane}>

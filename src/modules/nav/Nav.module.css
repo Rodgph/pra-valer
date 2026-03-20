@@ -10,9 +10,36 @@
   user-select: none;
 }
 
-.sectionLeft, .sectionRight {
+.sectionRight {
   display: flex;
   align-items: center;
+  gap: 16px;
+}
+
+.statusGroup {
+  display: flex;
+  gap: 12px;
+  padding-right: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.statusItem {
+  display: flex;
+  flex-direction: column;
+  min-width: 35px;
+}
+
+.statusLabel {
+  font-size: 7px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.statusValue {
+  font-size: 10px;
+  font-family: 'monospace';
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .sectionCenter {
@@ -38,35 +65,39 @@
 /* WINDOW CONTROLS MINI MODULE */
 .windowControls {
   display: flex;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
+  gap: 8px;
+  padding: 0 8px;
 }
 
 .winBtn {
-  background: transparent;
+  width: 15px;
+  height: 15px;
+  border-radius: 50px;
   border: none !important;
-  color: white;
-  width: 32px;
-  height: 28px;
   cursor: pointer;
-  font-size: 10px;
+  transition: opacity 0.2s;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background 0.2s;
+  color: transparent; /* Esconde o símbolo interno */
 }
 
 .winBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  opacity: 0.7;
+}
+
+.winBtnOpen {
+  composes: winBtn;
+  background-color: #00FF66;
+}
+
+.winBtnMax {
+  composes: winBtn;
+  background-color: #888888;
 }
 
 .winBtnClose {
   composes: winBtn;
-}
-
-.winBtnClose:hover {
-  background: #e81123;
+  background-color: #C7001B;
 }
