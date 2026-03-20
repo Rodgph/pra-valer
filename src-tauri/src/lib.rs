@@ -9,6 +9,8 @@ use windows::core::{Interface, w};
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::Performance::*;
 use dlopen2::wrapper::{Container, WrapperApi};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use std::str::FromStr;
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -185,7 +187,6 @@ fn get_nvidia_telemetry() -> Option<GpuStats> {
     unsafe {
         let mut lock = NVML_CONTAINER.lock().unwrap();
         if lock.is_none() {
-            // Tenta carregar a DLL do driver NVIDIA no Windows
             if let Ok(container) = Container::<NvmlApi>::load("nvml.dll") {
                 if (container.init)() == 0 { *lock = Some(container); }
             }
@@ -332,11 +333,44 @@ fn get_system_stats() -> SystemStats {
     }
 }
 
+#[tauri::command]
+fn toggle_search_window<R: Runtime>(app: tauri::AppHandle<R>) {
+    if let Some(search) = app.get_webview_window("search_global") {
+        if search.is_visible().unwrap_or(false) {
+            let _ = search.hide();
+        } else {
+            let _ = search.center();
+            let _ = search.show();
+            let _ = search.set_focus();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let spotlight_shortcut = "CommandOrControl+Shift+Space";
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(move |app, shortcut, event| {
+                if shortcut.id() == Shortcut::from_str(spotlight_shortcut).unwrap().id() {
+                    if let Some(search) = app.get_webview_window("search_global") {
+                        match event.state() {
+                            ShortcutState::Pressed => {
+                                let _ = search.center();
+                                let _ = search.show();
+                                let _ = search.set_focus();
+                            }
+                            ShortcutState::Released => {
+                                // Opcional: fechar ao soltar ou manter aberto
+                            }
+                        }
+                    }
+                }
+            })
+            .build())
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Moved(_) => {
@@ -350,12 +384,17 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::Focused(false) => {
-                    if window.label() == "context_menu" { let _ = window.hide(); }
+                    if window.label() == "context_menu" || window.label() == "search_global" { 
+                        let _ = window.hide(); 
+                    }
                 }
                 _ => {}
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
+            // Tenta registrar o atalho global de forma segura
+            let _ = app.global_shortcut().register(Shortcut::from_str(spotlight_shortcut).unwrap());
+
             let h_handle = app.handle();
             let side = load_setting(&h_handle, "handle_side.txt", 0);
             let effect_val = load_setting(&h_handle, "backdrop_type.txt", 2);
@@ -365,6 +404,7 @@ pub fn run() {
                 CURRENT_BACKDROP_TYPE.store(effect_val, Ordering::SeqCst);
             }
             let effect = match effect_val { 3 => BackdropType::Acrylic, 2 => BackdropType::Mica, _ => BackdropType::None };
+            
             let main = app.get_webview_window("main").unwrap();
             #[cfg(target_os = "windows")]
             apply_visual_dna(&main.as_ref().window(), effect);
@@ -374,11 +414,21 @@ pub fn run() {
             sys.refresh_cpu_usage();
             *SYSTEM_STATS.lock().unwrap() = Some(sys);
 
-            let test = tauri::WebviewWindowBuilder::new(app, "test_dna", tauri::WebviewUrl::App("index.html".into()))
-                .title("Teste").inner_size(400.0, 300.0).decorations(false).transparent(true).shadow(false).build().unwrap();
+            // Janela de Busca Global (Spotlight)
+            let search_global = tauri::WebviewWindowBuilder::new(app, "search_global", tauri::WebviewUrl::App("index.html?type=search".into()))
+                .title("Spotlight")
+                .inner_size(600.0, 80.0)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .always_on_top(true)
+                .visible(false)
+                .resizable(false)
+                .build()
+                .unwrap();
             #[cfg(target_os = "windows")]
-            apply_visual_dna(&test.as_ref().window(), effect);
-            
+            apply_visual_dna(&search_global.as_ref().window(), effect);
+
             let h_w = if side >= 2 { 20 } else { 150 };
             let h_h = if side >= 2 { 150 } else { 20 };
             let handle_win = tauri::WebviewWindowBuilder::new(app, "handle_win", tauri::WebviewUrl::App("index.html?type=handle".into()))
@@ -402,7 +452,8 @@ pub fn run() {
             set_handle_side, 
             get_active_menu_config, 
             emit_global_event,
-            get_system_stats
+            get_system_stats,
+            toggle_search_window
         ])
         .run(tauri::generate_context!())
         .expect("error");

@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { LayoutEngine } from "./modules/layout/components/LayoutEngine";
-import { useNavStore } from "./modules/nav/navStore";
+import { useNavStore, TelemetryItem } from "./modules/nav/navStore";
 import { useLayout } from "./modules/layout/store";
 import { moduleRegistry } from "./modules/orchestrator/registry";
 import Nav from "./modules/nav/Nav";
@@ -32,74 +32,115 @@ const HandleView = () => (
   </div>
 );
 
+const SearchView = () => {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  const results = Object.values(moduleRegistry).filter(m => 
+    m.name.toLowerCase().includes(query.toLowerCase()) || 
+    m.id.toLowerCase().includes(query.toLowerCase())
+  );
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const selectModule = async (moduleId: string) => {
+    await invoke("emit_global_event", { 
+      args: { event: "search-select", payload: { moduleId } } 
+    });
+    await appWindow.hide();
+  };
+
+  return (
+    <div className="search-container">
+      <input 
+        ref={inputRef}
+        className="search-input"
+        placeholder="BUSCAR MÓDULO..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && results[0]) selectModule(results[0].id); }}
+      />
+      <div className="search-results">
+        {results.map(m => (
+          <div key={m.id} className="search-item" onClick={() => selectModule(m.id)}>
+            <span className="search-icon">{m.icon}</span>
+            <span className="search-name">{m.name}</span>
+            <span className="search-id">{m.id}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [activeMenu, setActiveMenu] = useState<{ type: string; targetId?: string } | null>(null);
-  const { showWindowControls, toggleWindowControls } = useNavStore();
+  const [isFocused, setIsFocused] = useState(true);
+  const { telemetryVisibility, showWindowControls } = useNavStore();
   const { splitPane, setModule, removePane, root } = useLayout();
   
   const query = new URLSearchParams(window.location.search);
   const type = query.get("type");
   const moduleParam = query.get("module");
 
-  const isMenu = appWindow.label === "context_menu";
-  const isHandle = appWindow.label === "handle_win";
+  const isMenu = appWindow.label === "context_menu" || type === "menu";
+  const isHandle = appWindow.label === "handle_win" || type === "handle";
+  const isSearch = appWindow.label === "search_global" || type === "search";
   const isWidget = appWindow.label.startsWith("widget_") || type === "widget";
 
   useEffect(() => {
-    // ESCUTA DE SINCRONIA: Ouve comandos de outras janelas e aplica no Store local
+    const unlistenFocus = appWindow.onFocusChanged(({ payload: focused }) => {
+      setIsFocused(focused);
+    });
+
     const unlistenSync = listen<{ action: string; paneId: string; data?: any }>("sync-layout", (event) => {
       const { action, paneId, data } = event.payload;
-      console.log(`[SYNC-EVENT] Aplicando ${action} em ${paneId}`);
       if (action === "setModule") setModule(paneId, data);
       else if (action === "split") splitPane(paneId, data);
       else if (action === "remove") removePane(paneId);
     });
 
+    const unlistenSearch = listen<{ moduleId: string }>("search-select", (event) => {
+      // Por enquanto, abre o módulo no root se for um painel vazio
+      // Futuramente podemos implementar lógica de "encontrar painel focado"
+      if (root.type === "pane") {
+        setModule(root.id, event.payload.moduleId);
+      }
+    });
+
     if (isMenu) {
       invoke<{ type: string; targetId?: string }>("get_active_menu_config").then(setActiveMenu);
       const unlistenSetup = listen<{ type: string; targetId?: string }>("setup-menu", (e) => setActiveMenu(e.payload));
-      return () => { unlistenSync.then(f => f()); unlistenSetup.then(f => f()); };
+      return () => { 
+        unlistenFocus.then(f => f());
+        unlistenSync.then(f => f()); 
+        unlistenSetup.then(f => f()); 
+        unlistenSearch.then(f => f());
+      };
     }
 
-    return () => { unlistenSync.then(f => f()); };
-  }, [isMenu, setModule, splitPane, removePane]);
+    return () => { 
+      unlistenFocus.then(f => f());
+      unlistenSync.then(f => f()); 
+      unlistenSearch.then(f => f());
+    };
+  }, [isMenu, setModule, splitPane, removePane, root]);
 
   const broadcastAction = async (action: string, paneId: string, data?: any) => {
     if (isMenu) await appWindow.hide();
-    
-    // 1. Atualiza a própria janela
     if (action === "setModule") setModule(paneId, data);
     else if (action === "split") splitPane(paneId, data);
     else if (action === "remove") removePane(paneId);
 
-    // 2. Avisa as outras via Rust (Corrigido: parâmetros agora dentro de 'args')
     await invoke("emit_global_event", { 
-      args: {
-        event: "sync-layout", 
-        payload: { action, paneId, data } 
-      }
+      args: { event: "sync-layout", payload: { action, paneId, data } }
     });
   };
 
-  const detachToWidget = async (paneId: string) => {
-    const findModule = (node: any): string | null => {
-      if (node.id === paneId) return node.moduleId;
-      if (node.type === "split") return findModule(node.first) || findModule(node.second);
-      return null;
-    };
-    const moduleId = findModule(root);
-    
-    if (moduleId) {
-      if (isMenu) await appWindow.hide();
-      // Corrigido: parâmetros dentro de 'args'
-      await invoke("spawn_widget_window", { args: { moduleId } });
-      await broadcastAction("setModule", paneId, null);
-    }
-  };
-
-  const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
-    await invoke("apply_window_effect", { effect: newEffect });
-    if (isMenu) await appWindow.hide();
+  const toggleItem = async (item: TelemetryItem) => {
+    await invoke("emit_global_event", { args: { event: "toggle-telemetry-item", payload: { item } } });
   };
 
   const setSide = async (side: number) => {
@@ -107,8 +148,14 @@ function App() {
     if (isMenu) await appWindow.hide();
   };
 
+  const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
+    await invoke("apply_window_effect", { effect: newEffect });
+    if (isMenu) await appWindow.hide();
+  };
+
   if (isWidget && moduleParam) return <WidgetView moduleName={moduleParam} />;
   if (isHandle) return <HandleView />;
+  if (isSearch) return <SearchView />;
 
   if (isMenu) {
     return (
@@ -120,17 +167,21 @@ function App() {
               await appWindow.hide(); 
               await invoke("emit_global_event", { args: { event: "toggle-controls" } }); 
             }}>
-              Alternar Window Controls
-            </button>
-            <button onClick={async () => { 
-              await appWindow.hide(); 
-              await invoke("emit_global_event", { args: { event: "toggle-telemetry" } }); 
-            }}>
-              Alternar Telemetria
+              {showWindowControls ? "Ocultar" : "Mostrar"} Window Controls
             </button>
             
             <div className="divider" />
-            <div className="menu-header">Intervalo Telemetria</div>
+            <div className="menu-header">Telemetria</div>
+            <div className="menu-grid">
+              <button onClick={() => toggleItem("cpu")} className={telemetryVisibility.cpu ? "active" : ""}>CPU</button>
+              <button onClick={() => toggleItem("ram")} className={telemetryVisibility.ram ? "active" : ""}>RAM</button>
+              <button onClick={() => toggleItem("gpu")} className={telemetryVisibility.gpu ? "active" : ""}>GPU</button>
+              <button onClick={() => toggleItem("vram")} className={telemetryVisibility.vram ? "active" : ""}>VRAM</button>
+              <button onClick={() => toggleItem("net")} className={telemetryVisibility.net ? "active" : ""}>NET</button>
+            </div>
+
+            <div className="divider" />
+            <div className="menu-header">Intervalo</div>
             <div className="menu-grid">
               <button onClick={async () => { 
                 await appWindow.hide(); 
@@ -161,6 +212,7 @@ function App() {
             <div className="divider" />
             <button onClick={() => changeEffect("Mica")}>Mica</button>
             <button onClick={() => changeEffect("Acrylic")}>Acrylic</button>
+            <button onClick={() => changeEffect("None")}>Sem Efeito</button>
           </>
         )}
 
@@ -181,7 +233,7 @@ function App() {
   }
 
   return (
-    <div className="main-wrapper">
+    <div className={`main-wrapper ${isFocused ? "focused" : ""}`}>
       <div className="layout-container">
         {appWindow.label === "main" && <Nav />}
         <div className="engine-content">

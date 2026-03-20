@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export type TelemetryItem = "cpu" | "ram" | "gpu" | "vram" | "net";
+
 interface NavState {
   showWindowControls: boolean;
-  showTelemetry: boolean;
-  telemetryInterval: number; // em ms
+  telemetryVisibility: Record<TelemetryItem, boolean>;
+  telemetryInterval: number;
   toggleWindowControls: () => void;
-  toggleTelemetry: () => void;
+  toggleTelemetryItem: (item: TelemetryItem) => void;
   setTelemetryInterval: (interval: number) => void;
 }
 
@@ -14,10 +16,21 @@ export const useNavStore = create<NavState>()(
   persist(
     (set) => ({
       showWindowControls: true,
-      showTelemetry: true,
+      telemetryVisibility: {
+        cpu: true,
+        ram: true,
+        gpu: true,
+        vram: true,
+        net: true,
+      },
       telemetryInterval: 3000,
       toggleWindowControls: () => set((state) => ({ showWindowControls: !state.showWindowControls })),
-      toggleTelemetry: () => set((state) => ({ showTelemetry: !state.showTelemetry })),
+      toggleTelemetryItem: (item) => set((state) => ({
+        telemetryVisibility: {
+          ...state.telemetryVisibility,
+          [item]: !state.telemetryVisibility[item],
+        }
+      })),
       setTelemetryInterval: (interval) => set({ telemetryInterval: interval }),
     }),
     { name: "social-os-nav-settings" }
