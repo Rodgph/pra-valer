@@ -1,14 +1,24 @@
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLayout } from "../store";
 import { LayoutNode } from "../types";
-import styles from "./LayoutEngine.module.css";
-
 import { moduleRegistry } from "../../orchestrator/registry";
+import { useOrchestrator } from "../../orchestrator/store";
+import styles from "./LayoutEngine.module.css";
 
 const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
   const { updateSplitRatio } = useLayout();
+  const { openModules, mountModule } = useOrchestrator();
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const ModuleComponent = node.moduleId ? moduleRegistry[node.moduleId]?.component : null;
+  const instance = openModules.find(m => m.moduleId === node.moduleId && (!m.paneId || m.paneId === node.id));
+
+  useEffect(() => {
+    if (instance && node.type === "pane") {
+      mountModule(instance.instanceId, node.id);
+    }
+  }, [instance?.instanceId, node.id, mountModule]);
 
   const handleResize = useCallback((e: MouseEvent) => {
     if (!containerRef.current || node.type !== "split") return;
@@ -46,8 +56,6 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
       });
     }
   };
-
-  const ModuleComponent = node.moduleId ? moduleRegistry[node.moduleId]?.component : null;
 
   if (node.type === "split") {
     const isHorizontal = node.direction === "horizontal";

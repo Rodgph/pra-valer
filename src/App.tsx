@@ -6,6 +6,7 @@ import { LayoutEngine } from "./modules/layout/components/LayoutEngine";
 import { useNavStore, TelemetryItem } from "./modules/nav/navStore";
 import { useLayout } from "./modules/layout/store";
 import { moduleRegistry } from "./modules/orchestrator/registry";
+import { useOrchestrator } from "./modules/orchestrator/store";
 import Nav from "./modules/nav/Nav";
 import "./App.css";
 
@@ -34,22 +35,43 @@ const HandleView = () => (
 
 const SearchView = () => {
   const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { openModule } = useOrchestrator();
   
   const results = Object.values(moduleRegistry).filter(m => 
-    m.name.toLowerCase().includes(query.toLowerCase()) || 
-    m.id.toLowerCase().includes(query.toLowerCase())
+    m.id !== "NAV" && (
+      m.name.toLowerCase().includes(query.toLowerCase()) || 
+      m.id.toLowerCase().includes(query.toLowerCase())
+    )
   );
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
+
   const selectModule = async (moduleId: string) => {
+    openModule(moduleId);
     await invoke("emit_global_event", { 
       args: { event: "search-select", payload: { moduleId } } 
     });
     await appWindow.hide();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      setSelectedIndex(prev => (prev + 1) % results.length);
+    } else if (e.key === "ArrowUp") {
+      setSelectedIndex(prev => (prev - 1 + results.length) % results.length);
+    } else if (e.key === "Enter" && results[selectedIndex]) {
+      selectModule(results[selectedIndex].id);
+    } else if (e.key === "Escape") {
+      appWindow.hide();
+    }
   };
 
   return (
@@ -60,11 +82,16 @@ const SearchView = () => {
         placeholder="BUSCAR MÓDULO..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && results[0]) selectModule(results[0].id); }}
+        onKeyDown={handleKeyDown}
       />
       <div className="search-results">
-        {results.map(m => (
-          <div key={m.id} className="search-item" onClick={() => selectModule(m.id)}>
+        {results.map((m, index) => (
+          <div 
+            key={m.id} 
+            className={`search-item ${index === selectedIndex ? "selected" : ""}`} 
+            onClick={() => selectModule(m.id)}
+            onMouseEnter={() => setSelectedIndex(index)}
+          >
             <span className="search-icon">{m.icon}</span>
             <span className="search-name">{m.name}</span>
             <span className="search-id">{m.id}</span>
@@ -78,8 +105,10 @@ const SearchView = () => {
 function App() {
   const [activeMenu, setActiveMenu] = useState<{ type: string; targetId?: string } | null>(null);
   const [isFocused, setIsFocused] = useState(true);
+  
   const { telemetryVisibility, showWindowControls } = useNavStore();
   const { splitPane, setModule, removePane, root } = useLayout();
+  const { openModule, openModules } = useOrchestrator();
   
   const query = new URLSearchParams(window.location.search);
   const type = query.get("type");
@@ -103,11 +132,7 @@ function App() {
     });
 
     const unlistenSearch = listen<{ moduleId: string }>("search-select", (event) => {
-      // Por enquanto, abre o módulo no root se for um painel vazio
-      // Futuramente podemos implementar lógica de "encontrar painel focado"
-      if (root.type === "pane") {
-        setModule(root.id, event.payload.moduleId);
-      }
+      if (root.type === "pane") setModule(root.id, event.payload.moduleId);
     });
 
     if (isMenu) {
@@ -126,7 +151,7 @@ function App() {
       unlistenSync.then(f => f()); 
       unlistenSearch.then(f => f());
     };
-  }, [isMenu, setModule, splitPane, removePane, root]);
+  }, [isMenu, setModule, splitPane, removePane, root, isSearch]);
 
   const broadcastAction = async (action: string, paneId: string, data?: any) => {
     if (isMenu) await appWindow.hide();
@@ -224,6 +249,8 @@ function App() {
             <button onClick={() => broadcastAction("remove", activeMenu.targetId!)} style={{ color: '#ff4d4d' }}>✕ Remover Divisão</button>
             <div className="divider" />
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "Clock")}>🕒 Relógio</button>
+            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "KernelManager")}>🧠 Kernel Manager</button>
+            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "SystemMonitor")}>📈 System Monitor</button>
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, null)}>Limpar Painel</button>
           </>
         )}
@@ -233,7 +260,7 @@ function App() {
   }
 
   return (
-    <div className={`main-wrapper ${isFocused ? "focused" : ""}`}>
+    <div className="main-wrapper">
       <div className="layout-container">
         {appWindow.label === "main" && <Nav />}
         <div className="engine-content">

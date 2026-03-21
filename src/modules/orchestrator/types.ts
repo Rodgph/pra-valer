@@ -11,6 +11,7 @@ export interface ModuleDefinition {
 export interface ModuleInstance {
   instanceId: string;
   moduleId: string;
+  paneId?: string; // ID do painel onde está renderizado
   state: Record<string, any>;
 }
 

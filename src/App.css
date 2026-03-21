@@ -81,9 +81,16 @@ body { margin: 0; background: transparent; overflow: hidden; }
   width: 100vw; height: 100vh;
   display: flex; flex-direction: column;
   padding: 15px; box-sizing: border-box;
+  animation: spotlight-in 0.2s ease-out;
+}
+
+@keyframes spotlight-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .search-input {
+// ... (rest remains)
   width: 100%;
   background: transparent;
   border: none !important;
@@ -115,8 +122,9 @@ body { margin: 0; background: transparent; overflow: hidden; }
   transition: background 0.2s;
 }
 
-.search-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+.search-item:hover, .search-item.selected {
+  background: rgba(0, 120, 212, 0.2);
+  border-left: 2px solid #0078d4;
 }
 
 .search-icon { font-size: 20px; }
