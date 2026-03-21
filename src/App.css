@@ -32,6 +32,31 @@ body { margin: 0; background: transparent; overflow: hidden; }
   overflow: hidden;
 }
 
+/* NAV AUTO-HIDE (Windows Style) */
+.nav-wrapper {
+  position: absolute;
+  z-index: 10000;
+  transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+/* Posições de repouso (escondido) */
+.nav-wrapper.pos-top { top: 0; left: 0; width: 100%; transform: translateY(-100%); }
+.nav-wrapper.pos-bottom { bottom: 0; left: 0; width: 100%; transform: translateY(100%); }
+.nav-wrapper.pos-left { left: 0; top: 0; height: 100%; transform: translateX(-100%); }
+.nav-wrapper.pos-right { right: 0; top: 0; height: 100%; transform: translateX(100%); }
+
+/* Revelado */
+.nav-wrapper.visible {
+  transform: translate(0, 0) !important;
+}
+
+/* ZONA DE GATILHO */
+.nav-trigger {
+  position: absolute;
+  z-index: 9999;
+  background: transparent;
+}
+
 /* ALÇA (Handle) */
 .handle-layout {
   width: 100vw; height: 100vh;

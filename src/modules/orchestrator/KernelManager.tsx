@@ -1,9 +1,25 @@
 import React from "react";
 import { useOrchestrator } from "./store";
 import { moduleRegistry } from "./registry";
+import { invoke } from "@tauri-apps/api/core";
 
 export const KernelManager: React.FC = () => {
   const { openModules, closeModule } = useOrchestrator();
+
+  const handleKill = async (instanceId: string, paneId?: string) => {
+    // 1. Fecha o módulo no orquestrador
+    closeModule(instanceId);
+
+    // 2. Se o módulo estava em um painel, avisa o Layout Engine para limpar
+    if (paneId) {
+      await invoke("emit_global_event", { 
+        args: { 
+          event: "sync-layout", 
+          payload: { action: "setModule", paneId, data: null } 
+        } 
+      });
+    }
+  };
 
   return (
     <div style={{
@@ -53,7 +69,7 @@ export const KernelManager: React.FC = () => {
               </div>
               
               <button 
-                onClick={() => closeModule(inst.instanceId)}
+                onClick={() => handleKill(inst.instanceId, inst.paneId)}
                 style={{
                   background: 'rgba(199, 0, 27, 0.2)',
                   border: '1px solid #C7001B',

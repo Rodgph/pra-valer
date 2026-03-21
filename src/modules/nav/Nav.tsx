@@ -25,6 +25,7 @@ const Nav: React.FC = () => {
     showWindowControls, 
     telemetryVisibility, 
     telemetryInterval,
+    position,
     toggleWindowControls, 
     toggleTelemetryItem,
     setTelemetryInterval
@@ -36,6 +37,8 @@ const Nav: React.FC = () => {
     net_usage: 0,
     gpu: { name: "", usage: 0, vram_used: 0, vram_total: 0 }
   });
+
+  const isVertical = position === "left" || position === "right";
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -80,7 +83,7 @@ const Nav: React.FC = () => {
 
   return (
     <nav 
-      className={styles.navBar} 
+      className={`${styles.navBar} ${isVertical ? styles.vertical : styles.horizontal}`} 
       onMouseDown={handleMouseDown}
       onContextMenu={handleContextMenu}
     >
@@ -121,7 +124,7 @@ const Nav: React.FC = () => {
             </div>
           )}
         </div>
-        {showWindowControls && <WindowControls />}
+        {showWindowControls && <WindowControls isVertical={isVertical} />}
       </div>
     </nav>
   );

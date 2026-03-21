@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { LayoutEngine } from "./modules/layout/components/LayoutEngine";
-import { useNavStore, TelemetryItem } from "./modules/nav/navStore";
+import { useNavStore, TelemetryItem, NavPosition } from "./modules/nav/navStore";
 import { useLayout } from "./modules/layout/store";
 import { moduleRegistry } from "./modules/orchestrator/registry";
 import { useOrchestrator } from "./modules/orchestrator/store";
@@ -105,10 +105,20 @@ const SearchView = () => {
 function App() {
   const [activeMenu, setActiveMenu] = useState<{ type: string; targetId?: string } | null>(null);
   const [isFocused, setIsFocused] = useState(true);
+  const [isNavVisible, setIsNavVisible] = useState(false);
   
-  const { telemetryVisibility, showWindowControls } = useNavStore();
+  const { 
+    telemetryVisibility, 
+    showWindowControls, 
+    autoHideNav,
+    position: navPosition, 
+    setPosition: setNavPosition,
+    toggleAutoHide,
+    toggleWindowControls
+  } = useNavStore();
+  
   const { splitPane, setModule, removePane, root } = useLayout();
-  const { openModule, openModules } = useOrchestrator();
+  const { openModule } = useOrchestrator();
   
   const query = new URLSearchParams(window.location.search);
   const type = query.get("type");
@@ -135,6 +145,22 @@ function App() {
       if (root.type === "pane") setModule(root.id, event.payload.moduleId);
     });
 
+    const unlistenNavPos = listen<{ position: NavPosition }>("set-nav-position", (event) => {
+      setNavPosition(event.payload.position);
+    });
+
+    const unlistenControls = listen("toggle-controls", () => {
+      toggleWindowControls();
+    });
+
+    const unlistenAutoHide = listen("toggle-autohide", () => {
+      toggleAutoHide();
+    });
+
+    const unlistenEffect = listen<{ effect: "Mica" | "Acrylic" | "None" }>("sync-effect", (event) => {
+      invoke("apply_window_effect", { effect: event.payload.effect });
+    });
+
     if (isMenu) {
       invoke<{ type: string; targetId?: string }>("get_active_menu_config").then(setActiveMenu);
       const unlistenSetup = listen<{ type: string; targetId?: string }>("setup-menu", (e) => setActiveMenu(e.payload));
@@ -143,6 +169,10 @@ function App() {
         unlistenSync.then(f => f()); 
         unlistenSetup.then(f => f()); 
         unlistenSearch.then(f => f());
+        unlistenNavPos.then(f => f());
+        unlistenControls.then(f => f());
+        unlistenAutoHide.then(f => f());
+        unlistenEffect.then(f => f());
       };
     }
 
@@ -150,8 +180,12 @@ function App() {
       unlistenFocus.then(f => f());
       unlistenSync.then(f => f()); 
       unlistenSearch.then(f => f());
+      unlistenNavPos.then(f => f());
+      unlistenControls.then(f => f());
+      unlistenAutoHide.then(f => f());
+      unlistenEffect.then(f => f());
     };
-  }, [isMenu, setModule, splitPane, removePane, root, isSearch]);
+  }, [isMenu, setModule, splitPane, removePane, root, isSearch, setNavPosition, toggleAutoHide, toggleWindowControls]);
 
   const broadcastAction = async (action: string, paneId: string, data?: any) => {
     if (isMenu) await appWindow.hide();
@@ -168,6 +202,11 @@ function App() {
     await invoke("emit_global_event", { args: { event: "toggle-telemetry-item", payload: { item } } });
   };
 
+  const setNavPos = async (pos: NavPosition) => {
+    await invoke("emit_global_event", { args: { event: "set-nav-position", payload: { position: pos } } });
+    if (isMenu) await appWindow.hide();
+  };
+
   const setSide = async (side: number) => {
     await invoke("set_handle_side", { side });
     if (isMenu) await appWindow.hide();
@@ -175,6 +214,9 @@ function App() {
 
   const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
     await invoke("apply_window_effect", { effect: newEffect });
+    await invoke("emit_global_event", { 
+      args: { event: "sync-effect", payload: { effect: newEffect } } 
+    });
     if (isMenu) await appWindow.hide();
   };
 
@@ -188,11 +230,24 @@ function App() {
         {activeMenu?.type === "NAV" && (
           <>
             <div className="menu-header">Navegação</div>
+            <div className="menu-grid">
+              <button onClick={() => setNavPos("top")} className={navPosition === "top" ? "active" : ""}>Topo</button>
+              <button onClick={() => setNavPos("bottom")} className={navPosition === "bottom" ? "active" : ""}>Base</button>
+              <button onClick={() => setNavPos("left")} className={navPosition === "left" ? "active" : ""}>Esq.</button>
+              <button onClick={() => setNavPos("right")} className={navPosition === "right" ? "active" : ""}>Dir.</button>
+            </div>
+            <div className="divider" />
             <button onClick={async () => { 
               await appWindow.hide(); 
               await invoke("emit_global_event", { args: { event: "toggle-controls" } }); 
             }}>
               {showWindowControls ? "Ocultar" : "Mostrar"} Window Controls
+            </button>
+            <button onClick={async () => { 
+              await appWindow.hide(); 
+              await invoke("emit_global_event", { args: { event: "toggle-autohide" } }); 
+            }}>
+              {autoHideNav ? "Desativar" : "Ativar"} Auto-Hide NAV
             </button>
             
             <div className="divider" />
@@ -259,13 +314,55 @@ function App() {
     );
   }
 
+  const isVertical = navPosition === "left" || navPosition === "right";
+  const isStart = navPosition === "top" || navPosition === "left";
+
+  const renderNav = () => {
+    if (appWindow.label !== "main") return null;
+    return (
+      <>
+        <div 
+          className={`nav-wrapper pos-${navPosition} ${(!autoHideNav || isNavVisible) ? 'visible' : ''}`}
+          onMouseEnter={() => setIsNavVisible(true)}
+          onMouseLeave={() => setIsNavVisible(false)}
+          style={{ position: autoHideNav ? 'absolute' : 'relative' }}
+        >
+          <Nav />
+        </div>
+
+        {autoHideNav && !isNavVisible && (
+          <div 
+            className="nav-trigger"
+            onMouseEnter={() => setIsNavVisible(true)}
+            style={{
+              top: navPosition === 'top' ? 0 : 'auto',
+              bottom: navPosition === 'bottom' ? 0 : 'auto',
+              left: navPosition === 'left' ? 0 : 'auto',
+              right: navPosition === 'right' ? 0 : 'auto',
+              width: isVertical ? '10px' : '100%',
+              height: isVertical ? '100%' : '10px',
+            }}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="main-wrapper">
-      <div className="layout-container">
-        {appWindow.label === "main" && <Nav />}
+      <div 
+        className="layout-container"
+        style={{ 
+          flexDirection: isVertical ? "row" : "column" 
+        }}
+      >
+        {isStart && renderNav()}
+        
         <div className="engine-content">
           <LayoutEngine />
         </div>
+
+        {!isStart && renderNav()}
       </div>
     </div>
   );
