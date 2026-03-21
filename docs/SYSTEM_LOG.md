@@ -10,72 +10,59 @@ Este documento é a autoridade máxima do Social OS. Ele unifica a visão do pro
 
 ---
 
-## ☢️ 1. Manifesto de Essência Visual (DNA Agressivo)
-Define as regras inalienáveis para todas as janelas. Qualquer nova janela **DEVE** seguir estes mandamentos:
+## 🏗️ 1. Visão e Showcase (Visual DNA)
+O **Social OS** subverte as convenções do Windows 11 para entregar uma experiência **brutalista e de ultra-baixa latência**.
 
-### Mandamentos Técnicos (DWM & Win32)
-- **Borda/Halo Zero Absoluto:** O atributo `DWMWA_BORDER_COLOR` deve ser sempre `0xFFFFFFFE`. Nenhuma borda colorida ou halo de foco nativo é permitido.
-- **Sombra Zero:** Sombras nativas são desativadas via config (`shadow: false`) e DWM.
-- **Cantos Vivos:** Forçamos `DWMWCP_DONOTROUND`. Janelas arredondadas são proibidas.
-- **Backdrop Persistente:** O efeito Mica/Acrylic **NUNCA** desativa. O `WNDPROC` é interceptado para mentir ao kernel sobre o estado de foco.
-
-### Regras de Interface (Frontend)
-- **Borda Zero CSS:** Proibido o uso de `border` (`border: none !important`). Separação via cores e transparência.
-- **Transparência Crítica:** `body` e `html` com `background: transparent !important`.
-- **Modo Escuro Forçado:** `DWMWA_USE_IMMERSIVE_DARK_MODE` sempre ativo.
+### ☢️ Os Mandamentos do DNA Visual (Inalienáveis)
+- **Borda/Halo Zero Absoluto:** Atributo `DWMWA_BORDER_COLOR` é sempre `0xFFFFFFFE`. Nenhuma borda nativa ou simulada é permitida.
+- **Cantos Vivos:** Atributo `DWMWA_WINDOW_CORNER_PREFERENCE` é sempre `DWMWCP_DONOTROUND`.
+- **Mica Persistente:** Hack do `WNDPROC` que intercepta `WM_NCACTIVATE` para manter a transparência ativa mesmo sem foco.
+- **Sincronia de Materiais:** Evento global `sync-effect` garante que todas as janelas (Main, Spotlight, Menus) usem o mesmo material (Mica/Acrylic) simultaneamente.
 
 ---
 
-## 📐 2. Engine de Layout (Recursive Tiling Manager)
-- **Árvore Binária Recursiva:** O layout é uma estrutura de árvore onde cada nó pode ser um `Split` (divisão H/V) ou um `Pane` (espaço para módulo).
-- **Resizer Furtivo (Hitbox-UX):** Linha de 1px (transparente/preta) com hitbox de 10px para arraste preciso sem poluir a UI.
-- **Sincronia Cross-Window:** Toda alteração é transmitida via barramento de eventos Rust (evento `sync-layout`), permitindo controle via janelas externas.
+## 📐 2. Engine de Layout & Orquestração
+- **Recursive Tiling:** Layout baseado em árvore binária (SplitNode vs PaneNode).
+- **Orquestrador de Núcleo (Kernel):** Sistema de instâncias globais. Cada módulo é um "processo" rastreado por PID e vinculado a um `paneId`.
+- **Kill-Link:** Ao encerrar um processo no Kernel Manager, o Layout Engine limpa o painel correspondente automaticamente via broadcast global.
 
 ---
 
-## 🔍 3. Spotlight Search (The Finder)
+## 🔍 3. Spotlight Search Pro (The Finder)
 Invoque via `Ctrl + Shift + Space`.
-- **Janela dedicada:** `search_global` configurada no Rust com `always_on_top` e sem decorações.
-- **Filtro Real-time:** Varre o `moduleRegistry` para spawn instantâneo de módulos via evento `search-select`.
+- **Navegação de Elite:** Suporte completo a teclado (Setas ↑/↓, Enter para executar, Esc para cancelar).
+- **Visual:** Animação de entrada `spotlight-in` (slide down + fade) e destaque azul brutalista no item selecionado.
 
 ---
 
-## 📊 4. Telemetria Nível Kernel (Hardcore Monitoring)
-- **Arquitetura Híbrida:** Backend Rust decide entre **DXGI** (identificação), **PDH** (carga global) e **NVML** (NVIDIA Driver Level).
-- **NVIDIA Driver Link:** Carregamos a `nvml.dll` dinamicamente para ler diretamente da RTX 3060.
-- **Controle Cirúrgico:** Visibilidade granulada por item (CPU, RAM, GPU, VRAM, NET) e intervalos configuráveis (500ms a 3s).
+## 📊 4. Telemetria e Monitoramento
+- **Arquitetura Híbrida:** Backend Rust funde **DXGI**, **PDH** e **NVML** para monitoramento 100% confiável da RTX 3060.
+- **Auto-Hide (Slide Over):** Barra de navegação com comportamento Windows-style. Ela vive fora da tela e desliza **por cima** do conteúdo ao encostar o mouse na borda correspondente, sem deslocar o layout.
+- **System Monitor:** Módulo de alta performance que renderiza gráficos SVG em tempo real para CPU, GPU e VRAM com grid lines de precisão.
 
 ---
 
 ## 🧪 5. Estratégia Git (Cobaia vs. Base)
-Dois remotos sincronizados para segurança e liberdade:
-1.  **pra-valer (O Cobaia):** `https://github.com/Rodgph/pra-valer`. Ambiente de testes instáveis.
-2.  **base (O Backup/Oficial):** `https://github.com/Rodgph/Base`. Fonte de verdade estável.
-- **O Seletor:** Utilizamos o script `./push.ps1` para gerenciar o destino.
-- **Regra de Ouro:** Apenas código funcional e testado é promovido para a `base`.
+- **pra-valer (O Cobaia):** `https://github.com/Rodgph/pra-valer`. Para testes instáveis.
+- **base (O Backup/Oficial):** `https://github.com/Rodgph/Base`. Fonte de verdade estável.
+- **O Seletor:** Script `./push.ps1` gerencia a promoção de código.
 
 ---
 
 ## 📜 6. A Crônica de Desafios (Batalhas Superadas)
 
-### ⚔️ A Batalha das Referências (Rust Borrowing)
-- **Falha:** Erros `E0308` ao manipular janelas. **Solução:** Normalizamos o uso de `tauri::Window` e extração via `.as_ref().window()`.
+### ⚔️ A Batalha da RTX 3060 (Zero-Stats Bug)
+- **Falha:** Uso de GPU e VRAM apareciam como 0%. **Solução:** Implementamos NVML (Direct Driver Access) e PDH totalizado para motores 3D.
 
-### ⚔️ O Fantasma do UTF-16 (Binary CSS Bug)
-- **Falha:** Vite tratava CSS como binário (Erro 500). **Solução:** Forçamos reescrita em UTF-8 puro, ignorando o padrão UTF-16 do PowerShell.
+### ⚔️ O Conflito de Hierarquia (Nav Inversion)
+- **Falha:** Ao ativar Auto-Hide, o NAV mudava de lado (ex: Topo para Base).
+- **Solução:** Refatoramos o `App.tsx` para respeitar a ordem física do DOM (isStart render) independente do estado de visibilidade.
 
 ### ⚔️ O Desafio do Send/Sync (Ponteiros Brutos)
-- **Falha:** Compilador Rust barrava Handles PDH em Mutexes globais. **Solução:** Criamos o wrapper `struct SendRaw<T>(T);` com impl manual de `Send/Sync`.
-
-### ⚔️ A Batalha da RTX 3060 (Zero-Stats Bug)
-- **Falha:** Uso de GPU e VRAM apareciam como 0%. **Solução:** Abandonamos APIs de alto nível por NVML (Direct Driver Access) e PDH totalizado para motores 3D.
+- **Falha:** Compilador Rust barrava Handles PDH em Mutexes globais.
+- **Solução:** Criamos o wrapper `struct SendRaw<T>(T);` com impl manual de `Send/Sync`.
 
 ---
 
-## 🚀 7. Como Iniciar
-1. `npm install`
-2. `npm run tauri dev`
-3. Atalhos: `Ctrl+Shift+Space` (Busca), `Botão Direito no NAV` (Configurações).
-
----
+## 🏁 FASE 1: CONCLUÍDA.
 *Assinado: O Arquiteto do Sistema — Social OS Core Team*
