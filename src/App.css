@@ -1,157 +1,227 @@
 :root {
   font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
   color: white;
-  background: transparent;
+  background: transparent !important;
 }
 
-body { margin: 0; background: transparent; overflow: hidden; }
+* {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+:focus {
+  outline: none !important;
+}
+
+::-moz-focus-inner {
+  border: 0 !important;
+}
+
+html, body, #root, .loader-root { 
+  margin: 0; 
+  padding: 0;
+  background: transparent !important; 
+  background-color: transparent !important;
+  overflow: hidden; 
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
 
 /* PRINCIPAL / TESTE */
 .main-wrapper {
   width: 100vw;
   height: 100vh;
   display: flex;
-}
-
-.menu-box button.active {
-  background: rgba(0, 120, 212, 0.4);
-  border: 1px solid rgba(0, 120, 212, 0.5) !important;
-  color: #fff;
+  flex-direction: column;
+  background: transparent !important;
+  color: white;
+  overflow: hidden;
 }
 
 .layout-container {
+  display: flex;
+  flex: 1;
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
+  background: transparent !important;
 }
 
 .engine-content {
   flex: 1;
-  width: 100%;
+  position: relative;
   overflow: hidden;
+  background: transparent !important;
 }
 
-/* NAV AUTO-HIDE (Windows Style) */
+/* NAV WRAPPER */
 .nav-wrapper {
-  position: absolute;
-  z-index: 10000;
-  transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+  background: rgba(20, 20, 20, 0.4);
+  backdrop-filter: blur(20px);
+  z-index: 1000;
+  transition: transform 0.4s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.3s;
 }
 
-/* Posições de repouso (escondido) */
-.nav-wrapper.pos-top { top: 0; left: 0; width: 100%; transform: translateY(-100%); }
-.nav-wrapper.pos-bottom { bottom: 0; left: 0; width: 100%; transform: translateY(100%); }
-.nav-wrapper.pos-left { left: 0; top: 0; height: 100%; transform: translateX(-100%); }
-.nav-wrapper.pos-right { right: 0; top: 0; height: 100%; transform: translateX(100%); }
+.nav-wrapper.pos-top { width: 100%; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.nav-wrapper.pos-bottom { width: 100%; border-top: 1px solid rgba(255,255,255,0.05); }
+.nav-wrapper.pos-left { height: 100%; border-right: 1px solid rgba(255,255,255,0.05); }
+.nav-wrapper.pos-right { height: 100%; border-left: 1px solid rgba(255,255,255,0.05); }
 
-/* Revelado */
-.nav-wrapper.visible {
-  transform: translate(0, 0) !important;
-}
+/* Auto-hide triggers */
+.nav-wrapper:not(.visible).pos-top { transform: translateY(-100%); opacity: 0; }
+.nav-wrapper:not(.visible).pos-bottom { transform: translateY(100%); opacity: 0; }
+.nav-wrapper:not(.visible).pos-left { transform: translateX(-100%); opacity: 0; }
+.nav-wrapper:not(.visible).pos-right { transform: translateX(100%); opacity: 0; }
 
-/* ZONA DE GATILHO */
 .nav-trigger {
   position: absolute;
-  z-index: 9999;
+  z-index: 999;
   background: transparent;
 }
 
-/* ALÇA (Handle) */
+/* HANDLE */
 .handle-layout {
-  width: 100vw; height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-  cursor: grab;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: move;
 }
 
 .handle-dot {
-  width: 30px; height: 4px;
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 2px;
+  width: 4px;
+  height: 4px;
+  background: #0078d4;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #0078d4;
 }
 
 /* MENU */
 .menu-box {
-  width: 100vw; height: 100vh;
-  background: rgba(25, 25, 25, 0.85);
-  backdrop-filter: blur(40px) saturate(1.8);
-  display: flex; flex-direction: column;
-  padding: 12px; box-sizing: border-box;
-  border-radius: 8px;
-}
-
-.menu-header {
-  font-size: 9px; text-transform: uppercase; opacity: 0.5;
-  padding: 8px 4px; letter-spacing: 1px; font-weight: bold;
-}
-
-.menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-
-.menu-box button {
-  background: rgba(255, 255, 255, 0.05);
-  border: none !important; color: white;
-  padding: 10px; text-align: center; border-radius: 4px;
-  cursor: pointer; font-size: 12px;
-}
-
-.menu-box button:hover { background: rgba(255, 255, 255, 0.12); }
-.divider { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 8px 0; }
-
-/* UTILS */
-.toast { background: #0078d4; padding: 10px 20px; border-radius: 6px; margin-bottom: 15px; position: absolute; top: 60px; left: 50%; transform: translateX(-50%); z-index: 1000; }
-.accent { color: #0078d4 !important; font-weight: bold; }
-
-/* SEARCH / SPOTLIGHT */
-.search-container {
-  width: 100vw; height: 100vh;
-  display: flex; flex-direction: column;
-  padding: 15px; box-sizing: border-box;
-  animation: spotlight-in 0.2s ease-out;
-}
-
-@keyframes spotlight-in {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.search-input {
-// ... (rest remains)
-  width: 100%;
-  background: transparent;
-  border: none !important;
-  outline: none !important;
-  color: white;
-  font-size: 24px;
-  font-family: "Segoe UI Variable Display", sans-serif;
-  font-weight: 200;
-  padding: 10px 5px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-
-.search-results {
-  margin-top: 10px;
+  width: max-content; 
+  min-width: 180px;
+  height: max-content;
+  background: rgba(25, 25, 25, 0.95);
+  backdrop-filter: blur(25px);
+  border: 1px solid rgba(0, 255, 102, 0.3); /* Verde Brutalista */
   display: flex;
   flex-direction: column;
   gap: 2px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  animation: spotlight-in 0.2s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+@keyframes spotlight-in {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.menu-header {
+  padding: 10px 15px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: #00FF66; /* Verde Brutalista */
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 0 5px;
+}
+
+.menu-box button {
+  background: transparent;
+  border: none;
+  color: #ccc;
+  padding: 8px 15px;
+  text-align: left;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.1s;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.menu-box button:hover {
+  background: rgba(0, 255, 102, 0.15);
+  color: #00FF66;
+}
+
+.menu-box button.active {
+  background: rgba(0, 255, 102, 0.1);
+  color: #00FF66;
+  font-weight: 600;
+  border-left: 2px solid #00FF66;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(0, 255, 102, 0.1);
+  margin: 5px 0;
+}
+
+/* SEARCH */
+.search-container {
+  width: 100vw;
+  height: 100vh;
+  background: rgba(5, 5, 5, 0.95);
+  backdrop-filter: blur(30px);
+  border: 1px solid rgba(0, 255, 102, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: spotlight-in 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+.search-input {
+  width: 100%;
+  background: rgba(0, 255, 102, 0.05);
+  border: none;
+  border-bottom: 1px solid rgba(0, 255, 102, 0.2);
+  color: #00FF66;
+  padding: 25px;
+  font-size: 22px;
+  outline: none;
+  font-family: 'Consolas', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.search-results {
+  flex: 1;
   overflow-y: auto;
+  padding: 5px;
 }
 
 .search-item {
-  padding: 12px 15px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 4px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 15px;
-  transition: background 0.2s;
+  padding: 15px 20px;
+  cursor: pointer;
+  border-radius: 0; /* Cantos Vivos */
+  transition: all 0.1s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
 }
 
-.search-item:hover, .search-item.selected {
-  background: rgba(0, 120, 212, 0.2);
-  border-left: 2px solid #0078d4;
+.search-item.selected {
+  background: #00FF66; /* Destaque Brutalista */
+  color: #000;
 }
+
+.search-item.selected .search-name { color: #000; font-weight: 800; }
+.search-item.selected .search-id { color: #000; opacity: 0.6; }
+.search-item.selected .search-icon { filter: brightness(0); }
 
 .search-icon { font-size: 20px; }
-.search-name { font-size: 14px; font-weight: 400; }
-.search-id { font-size: 10px; opacity: 0.3; margin-left: auto; font-family: monospace; }
+.search-name { font-size: 14px; font-weight: 400; color: #fff; text-transform: uppercase; letter-spacing: 1px; }
+.search-id { font-size: 9px; opacity: 0.3; margin-left: auto; font-family: monospace; }

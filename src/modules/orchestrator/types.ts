@@ -11,11 +11,18 @@ export interface ModuleDefinition {
 export interface ModuleInstance {
   instanceId: string;
   moduleId: string;
-  paneId?: string; // ID do painel onde está renderizado
+  paneId?: string; // ID do painel onde está renderizado (se tiling)
+  isFloating: boolean;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  zIndex: number;
   state: Record<string, any>;
 }
 
 export interface OrchestratorState {
   openModules: ModuleInstance[];
   focusedInstanceId: string | null;
+  nextZIndex: number;
 }

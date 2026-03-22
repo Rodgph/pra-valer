@@ -1,0 +1,45 @@
+/* LoaderView */
+.loaderRoot {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.loaderLine {
+  width: 100%;
+  height: 3px;
+  background: #00FF66;
+  box-shadow: 0 0 10px #00FF66;
+  animation: loaderLineFlow 2s linear infinite;
+}
+
+@keyframes loaderLineFlow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Context Menu */
+.menuBox {
+  padding: 12px;
+}
+
+.exitButton {
+  color: #ff4d4d !important;
+}
+
+.menuCloseHint {
+  opacity: 0.3;
+  margin-top: auto;
+}
+
+/* Navigation Triggers */
+.navTriggerTop { top: 0; left: 0; width: 100%; height: 10px; }
+.navTriggerBottom { bottom: 0; left: 0; width: 100%; height: 10px; }
+.navTriggerLeft { left: 0; top: 0; height: 100%; width: 10px; }
+.navTriggerRight { right: 0; top: 0; height: 100%; width: 10px; }
+
+.posAbsolute { position: absolute; }
+.posRelative { position: relative; }

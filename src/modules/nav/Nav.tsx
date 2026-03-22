@@ -23,10 +23,12 @@ interface SystemStats {
 const Nav: React.FC = () => {
   const { 
     showWindowControls, 
+    showClock,
     telemetryVisibility, 
     telemetryInterval,
     position,
     toggleWindowControls, 
+    toggleClock,
     toggleTelemetryItem,
     setTelemetryInterval
   } = useNavStore();
@@ -38,7 +40,14 @@ const Nav: React.FC = () => {
     gpu: { name: "", usage: 0, vram_used: 0, vram_total: 0 }
   });
 
+  const [time, setTime] = useState(new Date());
+
   const isVertical = position === "left" || position === "right";
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -53,7 +62,10 @@ const Nav: React.FC = () => {
     fetchStats();
     const interval = setInterval(fetchStats, telemetryInterval);
 
-    const unlistenControls = listen("toggle-controls", () => toggleWindowControls());
+    const unlistenClock = listen("toggle-nav-clock", () => {
+      toggleClock();
+    });
+
     const unlistenTelemetryItem = listen<{ item: TelemetryItem }>("toggle-telemetry-item", (event) => {
       toggleTelemetryItem(event.payload.item);
     });
@@ -63,11 +75,11 @@ const Nav: React.FC = () => {
 
     return () => {
       clearInterval(interval);
-      unlistenControls.then((f) => f());
+      unlistenClock.then((f) => f());
       unlistenTelemetryItem.then((f) => f());
       unlistenInterval.then((f) => f());
     };
-  }, [toggleWindowControls, toggleTelemetryItem, telemetryInterval, setTelemetryInterval]);
+  }, [toggleWindowControls, toggleClock, toggleTelemetryItem, telemetryInterval, setTelemetryInterval]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).classList.contains(styles.navBar) || 
@@ -81,6 +93,10 @@ const Nav: React.FC = () => {
     await invoke("trigger_context_menu", { args: { menuType: "NAV" } });
   };
 
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  };
+
   return (
     <nav 
       className={`${styles.navBar} ${isVertical ? styles.vertical : styles.horizontal}`} 
@@ -88,7 +104,12 @@ const Nav: React.FC = () => {
       onContextMenu={handleContextMenu}
     >
       <div className={styles.sectionCenter}>
-        {/* Espaço limpo para arraste */}
+        {showClock && (
+          <div className={styles.navClock}>
+            <span className={styles.navClockLabel}>SYS_TIME</span>
+            <span className={styles.navClockValue}>{formatTime(time)}</span>
+          </div>
+        )}
       </div>
 
       <div className={styles.sectionRight}>

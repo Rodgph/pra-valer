@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, PhysicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { LayoutEngine } from "./modules/layout/components/LayoutEngine";
+import { FloatingManager } from "./modules/orchestrator/FloatingManager";
 import { useNavStore, TelemetryItem, NavPosition } from "./modules/nav/navStore";
 import { useLayout } from "./modules/layout/store";
 import { moduleRegistry } from "./modules/orchestrator/registry";
 import { useOrchestrator } from "./modules/orchestrator/store";
 import Nav from "./modules/nav/Nav";
+import { useBrowserStore } from "./modules/browser/browserStore";
+import { useUserStylesStore } from "./modules/browser/userStylesStore";
+import { useWorkspaceStore } from "./modules/layout/workspaceStore";
 import "./App.css";
+import styles from "./App.module.css";
 
 const appWindow = getCurrentWindow();
 
@@ -33,6 +38,73 @@ const HandleView = () => (
   </div>
 );
 
+const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
+  const { urls } = useBrowserStore();
+  const { styles: userStyles, setStyle } = useUserStylesStore();
+  
+  const targetUrl = urls[targetPaneId] || "";
+  
+  // Cálculo seguro do domínio
+  let domain = "GLOBAL";
+  try {
+    if (targetUrl && targetUrl.startsWith("http")) {
+      domain = new URL(targetUrl).hostname;
+    }
+  } catch (e) {
+    console.error("Erro ao processar URL:", targetUrl);
+  }
+  
+  const [localCss, setLocalCss] = useState("");
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Carrega o CSS salvo para este domínio sempre que o domínio mudar
+    const saved = userStyles[domain] || "";
+    setLocalCss(saved);
+    // Aplica imediatamente no navegador alvo
+    if (targetPaneId) {
+      invoke("apply_browser_css", { paneId: targetPaneId, css: saved });
+    }
+  }, [domain, targetPaneId, userStyles]); // Adicionado userStyles e targetPaneId como dependências seguras
+
+  const handleCssChange = (value: string) => {
+    setLocalCss(value);
+    
+    // 1. Injeta em tempo real (sem salvar ainda)
+    invoke("apply_browser_css", { paneId: targetPaneId, css: value });
+
+    // 2. Debounce para salvar na store (evita escritas excessivas no disco)
+    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(() => {
+      if (domain !== "GLOBAL") {
+        setStyle(domain, value);
+      }
+    }, 500);
+  };
+
+  return (
+    <div className={styles.cssEditorContainer}>
+      <div onMouseDown={() => appWindow.startDragging()} className={styles.cssEditorHeader}>
+        <div className={styles.cssEditorTitleGroup}>
+          <div className={styles.cssEditorSubtitle}>REALTIME_CSS_INJECTOR // PANE: {targetPaneId}</div>
+          <div className={styles.cssEditorTitle}>DOMAIN: <span style={{ color: '#00FF66' }}>{domain.toUpperCase()}</span></div>
+        </div>
+        <button onClick={() => appWindow.close()} className={styles.cssEditorClose}>✕</button>
+      </div>
+      <textarea 
+        autoFocus
+        value={localCss}
+        onChange={(e) => handleCssChange(e.target.value)}
+        placeholder="/* DIGITE SEU CSS BRUTALISTA AQUI... */"
+        className={styles.cssEditorTextarea}
+      />
+      <div className={styles.cssEditorFooter}>
+        STATUS: {localCss.length > 0 ? "INJECTING_ACTIVE" : "IDLE"} // PERSISTENCE: ENABLED
+      </div>
+    </div>
+  );
+};
+
 const SearchView = () => {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -55,66 +127,164 @@ const SearchView = () => {
   }, [query]);
 
   const selectModule = async (moduleId: string) => {
+    // TRATAMENTO DE COMANDOS POWER USER
+    const input = query.trim();
+    
+    if (input.startsWith("/")) {
+      const [cmd, ...args] = input.slice(1).split(" ");
+      const fullArgs = args.join(" ");
+
+      switch (cmd.toLowerCase()) {
+        case "save":
+          if (fullArgs) {
+            const currentRoot = useLayout.getState().root;
+            useWorkspaceStore.getState().saveWorkspace(fullArgs, currentRoot);
+          }
+          break;
+        
+        case "load":
+          if (fullArgs) {
+            const savedRoot = useWorkspaceStore.getState().loadWorkspace(fullArgs);
+            if (savedRoot) {
+              useLayout.setState({ root: savedRoot });
+              invoke("emit_global_event", { 
+                args: { event: "sync-layout", payload: { action: "full-reset", paneId: "root", data: savedRoot } } 
+              });
+            }
+          }
+          break;
+
+        case "g":
+        case "google":
+          if (fullArgs) {
+            const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(fullArgs)}`;
+            const searchInstanceId = `browser-search-${Math.random().toString(36).substr(2, 5)}`;
+            
+            // 1. Define a URL na store para este novo ID
+            useBrowserStore.getState().setPaneUrl(searchInstanceId, searchUrl);
+            
+            // 2. Abre o módulo passando o instanceId (isso requer que a store suporte receber ID ou usemos o evento sync)
+            openModule("SocialBrowser", true);
+            
+            // Pequeno hack: o openModule gera um ID aleatório. 
+            // Vou ajustar para que o comando Power User use o sistema de eventos globais de forma mais direta.
+            invoke("emit_global_event", { 
+              args: { 
+                event: "sync-orchestrator", 
+                payload: { 
+                  action: "open", 
+                  payload: { moduleId: "SocialBrowser", isFloating: true } 
+                } 
+              } 
+            });
+          }
+          break;
+        
+        case "mica": await invoke("apply_window_effect", { effect: "Mica" }); break;
+        case "acrylic": await invoke("apply_window_effect", { effect: "Acrylic" }); break;
+        case "none": await invoke("apply_window_effect", { effect: "None" }); break;
+        
+        case "kill":
+          if (fullArgs) {
+            const { openModules, closeModule } = useOrchestrator.getState();
+            openModules.filter(m => m.moduleId.toLowerCase().includes(fullArgs.toLowerCase()))
+                       .forEach(m => closeModule(m.instanceId));
+          }
+          break;
+
+        case "exit":
+        case "quit":
+          appWindow.close();
+          break;
+      }
+      await appWindow.hide();
+      setQuery("");
+      return;
+    }
+
     openModule(moduleId);
     await invoke("emit_global_event", { 
       args: { event: "search-select", payload: { moduleId } } 
     });
     await appWindow.hide();
+    setQuery("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
-      setSelectedIndex(prev => (prev + 1) % results.length);
+      setSelectedIndex(prev => (prev + 1) % (results.length || 1));
     } else if (e.key === "ArrowUp") {
-      setSelectedIndex(prev => (prev - 1 + results.length) % results.length);
-    } else if (e.key === "Enter" && results[selectedIndex]) {
-      selectModule(results[selectedIndex].id);
+      setSelectedIndex(prev => (prev - 1 + results.length) % (results.length || 1));
+    } else if (e.key === "Enter") {
+      if (query.startsWith("/")) {
+        selectModule("COMMAND");
+      } else if (results[selectedIndex]) {
+        selectModule(results[selectedIndex].id);
+      }
     } else if (e.key === "Escape") {
       appWindow.hide();
     }
   };
+
+  const isCommand = query.startsWith("/");
 
   return (
     <div className="search-container">
       <input 
         ref={inputRef}
         className="search-input"
-        placeholder="BUSCAR MÓDULO..."
+        placeholder={isCommand ? "EXECUTAR COMANDO..." : "BUSCAR MÓDULO..."}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
+        style={{ color: isCommand ? "#00FF66" : "#fff", borderBottomColor: isCommand ? "#00FF66" : "" }}
       />
       <div className="search-results">
-        {results.map((m, index) => (
-          <div 
-            key={m.id} 
-            className={`search-item ${index === selectedIndex ? "selected" : ""}`} 
-            onClick={() => selectModule(m.id)}
-            onMouseEnter={() => setSelectedIndex(index)}
-          >
-            <span className="search-icon">{m.icon}</span>
-            <span className="search-name">{m.name}</span>
-            <span className="search-id">{m.id}</span>
+        {isCommand ? (
+          <div className="search-item selected">
+            <span className="search-icon">⚡</span>
+            <span className="search-name">EXECUTAR: {query}</span>
+            <span className="search-id">SYSTEM_CMD</span>
           </div>
-        ))}
+        ) : (
+          results.map((m, index) => (
+            <div 
+              key={m.id} 
+              className={`search-item ${index === selectedIndex ? "selected" : ""}`} 
+              onClick={() => selectModule(m.id)}
+              onMouseEnter={() => setSelectedIndex(index)}
+            >
+              <span className="search-icon">{m.icon}</span>
+              <span className="search-name">{m.name}</span>
+              <span className="search-id">{m.id}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 };
 
+const LoaderView = () => (
+  <div className={styles.loaderRoot}>
+    <div className={styles.loaderLine} />
+  </div>
+);
+
 function App() {
   const [activeMenu, setActiveMenu] = useState<{ type: string; targetId?: string } | null>(null);
-  const [isFocused, setIsFocused] = useState(true);
+  const [, setIsFocused] = useState(true);
   const [isNavVisible, setIsNavVisible] = useState(false);
   
   const { 
     telemetryVisibility, 
     showWindowControls, 
+    showClock,
     autoHideNav,
     position: navPosition, 
     setPosition: setNavPosition,
     toggleAutoHide,
-    toggleWindowControls
+    toggleWindowControls,
   } = useNavStore();
   
   const { splitPane, setModule, removePane, root } = useLayout();
@@ -128,6 +298,8 @@ function App() {
   const isHandle = appWindow.label === "handle_win" || type === "handle";
   const isSearch = appWindow.label === "search_global" || type === "search";
   const isWidget = appWindow.label.startsWith("widget_") || type === "widget";
+  const isCSSEditor = appWindow.label.startsWith("css_injector_") || type === "css_injector";
+  const isLoader = appWindow.label === "browser_loader" || type === "browser_loader";
 
   useEffect(() => {
     const unlistenFocus = appWindow.onFocusChanged(({ payload: focused }) => {
@@ -139,6 +311,7 @@ function App() {
       if (action === "setModule") setModule(paneId, data);
       else if (action === "split") splitPane(paneId, data);
       else if (action === "remove") removePane(paneId);
+      else if (action === "full-reset") useLayout.setState({ root: data });
     });
 
     const unlistenSearch = listen<{ moduleId: string }>("search-select", (event) => {
@@ -157,10 +330,6 @@ function App() {
       toggleAutoHide();
     });
 
-    const unlistenEffect = listen<{ effect: "Mica" | "Acrylic" | "None" }>("sync-effect", (event) => {
-      invoke("apply_window_effect", { effect: event.payload.effect });
-    });
-
     if (isMenu) {
       invoke<{ type: string; targetId?: string }>("get_active_menu_config").then(setActiveMenu);
       const unlistenSetup = listen<{ type: string; targetId?: string }>("setup-menu", (e) => setActiveMenu(e.payload));
@@ -172,7 +341,6 @@ function App() {
         unlistenNavPos.then(f => f());
         unlistenControls.then(f => f());
         unlistenAutoHide.then(f => f());
-        unlistenEffect.then(f => f());
       };
     }
 
@@ -183,7 +351,6 @@ function App() {
       unlistenNavPos.then(f => f());
       unlistenControls.then(f => f());
       unlistenAutoHide.then(f => f());
-      unlistenEffect.then(f => f());
     };
   }, [isMenu, setModule, splitPane, removePane, root, isSearch, setNavPosition, toggleAutoHide, toggleWindowControls]);
 
@@ -214,19 +381,36 @@ function App() {
 
   const changeEffect = async (newEffect: "Mica" | "Acrylic" | "None") => {
     await invoke("apply_window_effect", { effect: newEffect });
-    await invoke("emit_global_event", { 
-      args: { event: "sync-effect", payload: { effect: newEffect } } 
-    });
     if (isMenu) await appWindow.hide();
   };
 
+  if (isLoader) return <LoaderView />;
+  if (isCSSEditor) return <CSSInjectorView targetPaneId={query.get("target") || ""} />;
   if (isWidget && moduleParam) return <WidgetView moduleName={moduleParam} />;
   if (isHandle) return <HandleView />;
   if (isSearch) return <SearchView />;
 
   if (isMenu) {
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      if (menuRef.current) {
+        const resizeMenu = async () => {
+          requestAnimationFrame(async () => {
+            const width = menuRef.current?.scrollWidth || 180;
+            const height = menuRef.current?.scrollHeight || 100;
+            const factor = await appWindow.scaleFactor();
+            await appWindow.setSize(new PhysicalSize(Math.round(width * factor), Math.round(height * factor)));
+            await appWindow.show();
+            await appWindow.setFocus();
+          });
+        };
+        resizeMenu();
+      }
+    }, [activeMenu]);
+
     return (
-      <div className="menu-box">
+      <div ref={menuRef} className={`menu-box ${styles.menuBox}`}>
         {activeMenu?.type === "NAV" && (
           <>
             <div className="menu-header">Navegação</div>
@@ -237,21 +421,10 @@ function App() {
               <button onClick={() => setNavPos("right")} className={navPosition === "right" ? "active" : ""}>Dir.</button>
             </div>
             <div className="divider" />
-            <button onClick={async () => { 
-              await appWindow.hide(); 
-              await invoke("emit_global_event", { args: { event: "toggle-controls" } }); 
-            }}>
-              {showWindowControls ? "Ocultar" : "Mostrar"} Window Controls
-            </button>
-            <button onClick={async () => { 
-              await appWindow.hide(); 
-              await invoke("emit_global_event", { args: { event: "toggle-autohide" } }); 
-            }}>
-              {autoHideNav ? "Desativar" : "Ativar"} Auto-Hide NAV
-            </button>
-            
-            <div className="divider" />
-            <div className="menu-header">Telemetria</div>
+            <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "toggle-controls" } }); }}>{showWindowControls ? "Ocultar" : "Mostrar"} Window Controls</button>
+            <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "toggle-nav-clock" } }); }}>{showClock ? "Ocultar" : "Mostrar"} Relógio</button>
+            <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "toggle-autohide" } }); }}>{autoHideNav ? "Desativar" : "Ativar"} Auto-Hide NAV</button>
+            <div className="divider" /><div className="menu-header">Telemetria</div>
             <div className="menu-grid">
               <button onClick={() => toggleItem("cpu")} className={telemetryVisibility.cpu ? "active" : ""}>CPU</button>
               <button onClick={() => toggleItem("ram")} className={telemetryVisibility.ram ? "active" : ""}>RAM</button>
@@ -259,57 +432,44 @@ function App() {
               <button onClick={() => toggleItem("vram")} className={telemetryVisibility.vram ? "active" : ""}>VRAM</button>
               <button onClick={() => toggleItem("net")} className={telemetryVisibility.net ? "active" : ""}>NET</button>
             </div>
-
-            <div className="divider" />
-            <div className="menu-header">Intervalo</div>
+            <div className="divider" /><div className="menu-header">Intervalo</div>
             <div className="menu-grid">
-              <button onClick={async () => { 
-                await appWindow.hide(); 
-                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 500 } } }); 
-              }}>500ms</button>
-              <button onClick={async () => { 
-                await appWindow.hide(); 
-                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 1000 } } }); 
-              }}>1s</button>
-              <button onClick={async () => { 
-                await appWindow.hide(); 
-                await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 3000 } } }); 
-              }}>3s</button>
+              <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 500 } } }); }}>500ms</button>
+              <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 1000 } } }); }}>1s</button>
+              <button onClick={async () => { await appWindow.hide(); await invoke("emit_global_event", { args: { event: "set-telemetry-interval", payload: { interval: 3000 } } }); }}>3s</button>
             </div>
-
-            <div className="divider" />
-            <button onClick={() => appWindow.close()} style={{ color: '#ff4d4d' }}>✕ Sair do Sistema</button>
+            <div className="divider" /><button onClick={() => appWindow.close()} className={styles.exitButton}>✕ Sair do Sistema</button>
           </>
         )}
-
         {activeMenu?.type === "HANDLE" && (
           <>
             <div className="menu-header">Posição</div>
-            <div className="menu-grid">
-              <button onClick={() => setSide(0)}>Topo</button><button onClick={() => setSide(1)}>Base</button>
-              <button onClick={() => setSide(2)}>Esq.</button><button onClick={() => setSide(3)}>Dir.</button>
-            </div>
-            <div className="divider" />
-            <button onClick={() => changeEffect("Mica")}>Mica</button>
-            <button onClick={() => changeEffect("Acrylic")}>Acrylic</button>
-            <button onClick={() => changeEffect("None")}>Sem Efeito</button>
+            <div className="menu-grid"><button onClick={() => setSide(0)}>Topo</button><button onClick={() => setSide(1)}>Base</button><button onClick={() => setSide(2)}>Esq.</button><button onClick={() => setSide(3)}>Dir.</button></div>
+            <div className="divider" /><button onClick={() => changeEffect("Mica")}>Mica</button><button onClick={() => changeEffect("Acrylic")}>Acrylic</button><button onClick={() => changeEffect("None")}>Sem Efeito</button>
           </>
         )}
-
         {activeMenu?.type === "LAYOUT" && (
           <>
             <div className="menu-header">Painel</div>
             <button onClick={() => broadcastAction("split", activeMenu.targetId!, "horizontal")}>Dividir H</button>
             <button onClick={() => broadcastAction("split", activeMenu.targetId!, "vertical")}>Dividir V</button>
-            <button onClick={() => broadcastAction("remove", activeMenu.targetId!)} style={{ color: '#ff4d4d' }}>✕ Remover Divisão</button>
+            <button onClick={() => broadcastAction("remove", activeMenu.targetId!)} className={styles.exitButton}>✕ Remover Divisão</button>
             <div className="divider" />
+            <div className="menu-header">Adicionar Módulo</div>
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "Clock")}>🕒 Relógio</button>
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "KernelManager")}>🧠 Kernel Manager</button>
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "SystemMonitor")}>📈 System Monitor</button>
+            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "FavoriteGames")}>🎮 Jogos Favoritos</button>
+            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "SocialBrowser")}>🌐 Navegador</button>
+            <div className="divider" />
+            <div className="menu-header">Modo Flutuante</div>
+            <button onClick={async () => { await appWindow.hide(); openModule("Clock", true); }}>🕒 Abrir Relógio</button>
+            <button onClick={async () => { await appWindow.hide(); openModule("KernelManager", true); }}>⚙️ Abrir Kernel</button>
+            <button onClick={async () => { await appWindow.hide(); openModule("SocialBrowser", true); }}>🌐 Abrir Navegador</button>
+            <div className="divider" />
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, null)}>Limpar Painel</button>
           </>
         )}
-        <button onClick={() => appWindow.hide()} style={{ opacity: 0.3, marginTop: 'auto' }}>Fechar Menu</button>
       </div>
     );
   }
@@ -319,30 +479,24 @@ function App() {
 
   const renderNav = () => {
     if (appWindow.label !== "main") return null;
+    
+    let triggerClass = "";
+    if (navPosition === "top") triggerClass = styles.navTriggerTop;
+    else if (navPosition === "bottom") triggerClass = styles.navTriggerBottom;
+    else if (navPosition === "left") triggerClass = styles.navTriggerLeft;
+    else if (navPosition === "right") triggerClass = styles.navTriggerRight;
+
     return (
       <>
         <div 
-          className={`nav-wrapper pos-${navPosition} ${(!autoHideNav || isNavVisible) ? 'visible' : ''}`}
-          onMouseEnter={() => setIsNavVisible(true)}
+          className={`nav-wrapper pos-${navPosition} ${(!autoHideNav || isNavVisible) ? 'visible' : ''} ${autoHideNav ? styles.posAbsolute : styles.posRelative}`} 
+          onMouseEnter={() => setIsNavVisible(true)} 
           onMouseLeave={() => setIsNavVisible(false)}
-          style={{ position: autoHideNav ? 'absolute' : 'relative' }}
         >
           <Nav />
         </div>
-
         {autoHideNav && !isNavVisible && (
-          <div 
-            className="nav-trigger"
-            onMouseEnter={() => setIsNavVisible(true)}
-            style={{
-              top: navPosition === 'top' ? 0 : 'auto',
-              bottom: navPosition === 'bottom' ? 0 : 'auto',
-              left: navPosition === 'left' ? 0 : 'auto',
-              right: navPosition === 'right' ? 0 : 'auto',
-              width: isVertical ? '10px' : '100%',
-              height: isVertical ? '100%' : '10px',
-            }}
-          />
+          <div className={`nav-trigger ${triggerClass}`} onMouseEnter={() => setIsNavVisible(true)} />
         )}
       </>
     );
@@ -350,18 +504,10 @@ function App() {
 
   return (
     <div className="main-wrapper">
-      <div 
-        className="layout-container"
-        style={{ 
-          flexDirection: isVertical ? "row" : "column" 
-        }}
-      >
+      <FloatingManager />
+      <div className="layout-container" style={{ flexDirection: isVertical ? "row" : "column" }}>
         {isStart && renderNav()}
-        
-        <div className="engine-content">
-          <LayoutEngine />
-        </div>
-
+        <div className="engine-content"><LayoutEngine /></div>
         {!isStart && renderNav()}
       </div>
     </div>

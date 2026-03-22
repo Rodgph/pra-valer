@@ -1,0 +1,187 @@
+.container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: rgba(5, 5, 5, 0.4);
+  color: #fff;
+  font-family: 'monospace', monospace;
+  position: relative;
+}
+
+.header {
+  padding: 15px 25px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.title {
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #00FF66;
+  font-weight: 800;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.connectionStatus {
+  font-size: 9px;
+  color: #00FF66;
+  opacity: 0.6;
+}
+
+.configButton {
+  background: transparent;
+  border: 1px solid #00FF66;
+  color: #00FF66;
+  font-size: 9px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.grid {
+  flex: 1;
+  padding: 25px;
+  overflow-y: auto;
+}
+
+.gridContent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: center;
+}
+
+.gameCard {
+  width: 140px;
+  aspect-ratio: 2 / 3;
+  background: #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.gameCard:hover {
+  border-color: #00FF66;
+  box-shadow: 0 0 15px rgba(0, 255, 102, 0.2);
+}
+
+.gamePoster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.7;
+}
+
+.gameTitle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.95));
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.addGamePlaceholder {
+  width: 140px;
+  aspect-ratio: 2 / 3;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 20px;
+}
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.configForm {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.configTitle {
+  font-size: 12px;
+  color: #00FF66;
+  margin-bottom: 10px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.label {
+  font-size: 9px;
+  opacity: 0.5;
+}
+
+.input {
+  background: #111;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 8px;
+  font-size: 11px;
+  outline: none;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.saveButton {
+  flex: 1;
+  background: #00FF66;
+  border: none;
+  padding: 10px;
+  color: #000;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.cancelButton {
+  background: transparent;
+  border: 1px solid #333;
+  color: #666;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.removeLinkButton {
+  background: transparent;
+  border: none;
+  color: #ff4d4d;
+  font-size: 9px;
+  cursor: pointer;
+  margin-top: 10px;
+}

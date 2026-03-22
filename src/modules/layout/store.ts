@@ -29,7 +29,9 @@ export const useLayout = create<LayoutState & LayoutActions>()(
                 id: `split-${Math.random().toString(36).substr(2, 9)}`,
                 direction,
                 ratio: 0.5,
-                first: { ...node, id: `pane-${Math.random().toString(36).substr(2, 9)}` },
+                // O painel original MANTÉM o ID original para preservar o estado nativo (browser)
+                first: { ...node }, 
+                // Apenas o novo painel ganha um ID novo
                 second: { type: "pane", id: `pane-${Math.random().toString(36).substr(2, 9)}`, moduleId: null },
               };
             }

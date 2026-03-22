@@ -1,15 +1,34 @@
-import React from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import styles from "./Nav.module.css";
+import { useNavStore } from "./navStore";
+import styles from "./WindowControls.module.css";
 
 const appWindow = getCurrentWindow();
 
-const WindowControls: React.FC<{ isVertical?: boolean }> = ({ isVertical }) => {
+const WindowControls = () => {
+  const { position } = useNavStore();
+  const isVerticalNav = position === "left" || position === "right";
+
+  const handleMinimize = () => appWindow.minimize();
+  const handleMaximize = () => appWindow.toggleMaximize();
+  const handleClose = () => appWindow.close();
+
   return (
-    <div className={`${styles.windowControls} ${isVertical ? styles.verticalControls : ""}`}>
-      <button className={styles.winBtnOpen} onClick={() => appWindow.minimize()}>⚊</button>
-      <button className={styles.winBtnMax} onClick={() => appWindow.toggleMaximize()}>🔳</button>
-      <button className={styles.winBtnClose} onClick={() => appWindow.close()}>✕</button>
+    <div className={`${styles.container} ${isVerticalNav ? styles.vertical : styles.horizontal}`}>
+      <button 
+        onClick={handleClose}
+        title="Fechar"
+        className={`${styles.buttonBase} ${styles.close}`}
+      />
+      <button 
+        onClick={handleMinimize}
+        title="Minimizar"
+        className={`${styles.buttonBase} ${styles.minimize}`}
+      />
+      <button 
+        onClick={handleMaximize}
+        title="Maximizar"
+        className={`${styles.buttonBase} ${styles.maximize}`}
+      />
     </div>
   );
 };

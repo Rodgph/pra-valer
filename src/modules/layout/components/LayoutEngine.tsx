@@ -65,11 +65,11 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
         className={styles.splitContainer} 
         style={{ flexDirection: isHorizontal ? "row" : "column" }}
       >
-        <div style={{ flex: node.ratio, overflow: 'hidden', position: 'relative' }}>
+        <div key={`${node.first.id}-container`} style={{ flex: node.ratio, overflow: 'hidden', position: 'relative' }}>
           <NodeRenderer node={node.first} />
         </div>
         <div className={styles.resizer} onMouseDown={startResize} />
-        <div style={{ flex: 1 - node.ratio, overflow: 'hidden', position: 'relative' }}>
+        <div key={`${node.second.id}-container`} style={{ flex: 1 - node.ratio, overflow: 'hidden', position: 'relative' }}>
           <NodeRenderer node={node.second} />
         </div>
       </div>
@@ -80,7 +80,7 @@ const NodeRenderer: React.FC<{ node: LayoutNode }> = ({ node }) => {
     <div className={styles.pane} onContextMenu={handleContextMenu}>
       {ModuleComponent ? (
         <div className={styles.moduleWrapper}>
-          <ModuleComponent />
+          <ModuleComponent paneId={node.id} />
         </div>
       ) : node.moduleId ? (
         <div className={styles.moduleContent}>Módulo: {node.moduleId}</div>
