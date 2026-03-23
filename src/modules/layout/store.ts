@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { LayoutState, LayoutNode, SplitDirection } from "./types";
-
 interface LayoutActions {
-  splitPane: (paneId: string, direction: SplitDirection) => void;
+  splitPane: (paneId: string, direction: SplitDirection, newPaneId: string, initialModuleId?: string | null, insertAt?: "first" | "second") => void;
   setModule: (paneId: string, moduleId: string | null) => void;
   updateSplitRatio: (splitId: string, ratio: number) => void;
   removePane: (paneId: string) => void;
@@ -20,19 +19,20 @@ export const useLayout = create<LayoutState & LayoutActions>()(
     (set) => ({
       root: initialLayout,
 
-      splitPane: (paneId, direction) => {
+      splitPane: (paneId, direction, newPaneId, initialModuleId = null, insertAt = "second") => {
         set((state) => {
           const findAndSplit = (node: LayoutNode): LayoutNode => {
             if (node.id === paneId && node.type === "pane") {
+              const newNode: LayoutNode = { type: "pane", id: newPaneId, moduleId: initialModuleId };
+              const originalNode: LayoutNode = { ...node };
+
               return {
                 type: "split",
                 id: `split-${Math.random().toString(36).substr(2, 9)}`,
                 direction,
                 ratio: 0.5,
-                // O painel original MANTÉM o ID original para preservar o estado nativo (browser)
-                first: { ...node }, 
-                // Apenas o novo painel ganha um ID novo
-                second: { type: "pane", id: `pane-${Math.random().toString(36).substr(2, 9)}`, moduleId: null },
+                first: insertAt === "first" ? newNode : originalNode,
+                second: insertAt === "second" ? newNode : originalNode,
               };
             }
             if (node.type === "split") {

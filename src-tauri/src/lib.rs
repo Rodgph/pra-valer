@@ -323,11 +323,21 @@ fn trigger_context_menu<R: Runtime>(app: tauri::AppHandle<R>, args: ContextMenuA
         unsafe {
             let mut point = POINT { x: 0, y: 0 };
             let _ = GetCursorPos(&mut point);
-            let _ = menu.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: point.x, y: point.y }));
+            
+            // VIEWPORT PROTECTION: Ajusta se estiver muito perto das bordas (estimativa de 200x300)
+            let monitor = menu.current_monitor().unwrap().unwrap();
+            let screen = monitor.size();
+            
+            let mut final_x = point.x;
+            let mut final_y = point.y;
+
+            if final_x + 200 > screen.width as i32 { final_x -= 200; }
+            if final_y + 300 > screen.height as i32 { final_y -= 300; }
+
+            let _ = menu.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: final_x, y: final_y }));
             #[cfg(target_os = "windows")]
             reveal_window(&menu);
             let _ = app.emit("setup-menu", serde_json::json!({ "type": args.menu_type, "targetId": args.target_id }));
-            // Removido show() e set_focus() para abrir ocultamente em 2 plano
         }
     }
 }
@@ -579,30 +589,66 @@ async fn toggle_css_injector<R: Runtime>(app: tauri::AppHandle<R>, pane_id: Stri
 #[tauri::command]
 async fn apply_browser_css<R: Runtime>(app: tauri::AppHandle<R>, pane_id: String, css: String) {
     let label = format!("browser_{}", pane_id);
+    
+    // Atualiza o Cache Global do Backend
     if let Some(win) = app.get_webview_window(&label) {
-        let escaped_css = css.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${");
-        let js = format!(
+        if let Ok(url) = win.url() {
+            let domain = url.host_str().unwrap_or("GLOBAL").to_string();
+            let mut cache = DOMAIN_CSS_CACHE.lock().unwrap();
+            if cache.is_none() { *cache = Some(HashMap::new()); }
+            
+            if let Some(map) = cache.as_mut() {
+                if css.trim().is_empty() {
+                    map.remove(&domain);
+                } else {
+                    map.insert(domain, css.clone());
+                }
+            }
+        }
+
+        let js = if css.trim().is_empty() {
             r#"
-            (function() {{
-                const css = `{}`;
-                let style = document.getElementById('social-os-custom-css');
-                if (!style) {{
-                    style = document.createElement('style');
-                    style.id = 'social-os-custom-css';
-                    document.head.appendChild(style);
-                }}
-                style.innerHTML = css;
-                
-                const observer = new MutationObserver((mutations) => {{
-                    if (!document.getElementById('social-os-custom-css')) {{
+            (function() {
+                const style = document.getElementById('social-os-custom-css');
+                if (style) style.remove();
+                if (window.__social_os_css_observer) window.__social_os_css_observer.disconnect();
+                window.__social_os_css_observer = null;
+                document.documentElement.style.backgroundColor = '';
+                document.body.style.backgroundColor = '';
+            })();
+            "#.to_string()
+        } else {
+            let escaped_css = css.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${");
+            format!(
+                r#"
+                (function() {{
+                    const css = `{}`;
+                    let style = document.getElementById('social-os-custom-css');
+                    if (!style) {{
+                        style = document.createElement('style');
+                        style.id = 'social-os-custom-css';
                         document.head.appendChild(style);
                     }}
-                }});
-                observer.observe(document.head, {{ childList: true }});
-            }})();
-            "#,
-            escaped_css
-        );
+                    style.innerHTML = css;
+                    
+                    if (!window.__social_os_css_observer) {{
+                        window.__social_os_css_observer = new MutationObserver(() => {{
+                            if (!document.getElementById('social-os-custom-css')) {{
+                                document.head.appendChild(style);
+                            }}
+                        }});
+                        window.__social_os_css_observer.observe(document.head, {{ childList: true }});
+                    }}
+
+                    if (css.includes('transparent')) {{
+                        document.documentElement.style.setProperty('background-color', 'transparent', 'important');
+                        document.body.style.setProperty('background-color', 'transparent', 'important');
+                    }}
+                }})();
+                "#,
+                escaped_css
+            )
+        };
         let _ = win.eval(&js);
     }
 }
@@ -658,6 +704,41 @@ async fn mount_browser_child<R: Runtime>(
     let pane_id_nav = pane_id.clone();
     let pane_id_load = pane_id.clone();
 
+    // Busca CSS no cache para este domínio
+    let mut initial_css_script = "".to_string();
+    if let Ok(parsed_url) = tauri::Url::parse(&url) {
+        if let Some(domain) = parsed_url.host_str() {
+            let cache = DOMAIN_CSS_CACHE.lock().unwrap();
+            if let Some(map) = cache.as_ref() {
+                if let Some(css) = map.get(domain) {
+                    let escaped_css = css.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${");
+                    initial_css_script = format!(
+                        r#"
+                        (function() {{
+                            const inject = () => {{
+                                let style = document.getElementById('social-os-custom-css');
+                                if (!style) {{
+                                    style = document.createElement('style');
+                                    style.id = 'social-os-custom-css';
+                                    document.head.appendChild(style);
+                                }}
+                                style.innerHTML = `{}`;
+                                if (`{}`.includes('transparent')) {{
+                                    document.documentElement.style.setProperty('background-color', 'transparent', 'important');
+                                    document.body.style.setProperty('background-color', 'transparent', 'important');
+                                }};
+                            }};
+                            inject();
+                            window.addEventListener('DOMContentLoaded', inject);
+                        }})();
+                        "#,
+                        escaped_css, escaped_css
+                    );
+                }
+            }
+        }
+    }
+
     let browser_win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse().unwrap()))
         .position(x as f64, y as f64)
         .inner_size(width as f64, height as f64)
@@ -668,14 +749,16 @@ async fn mount_browser_child<R: Runtime>(
         .resizable(false)
         .background_color((0, 0, 0, 0).into())
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-        .initialization_script(r#"
-            window.chrome = window.chrome || {};
-            window.chrome.runtime = window.chrome.runtime || { 
-                sendMessage: function() {}, 
-                connect: function() {},
-                onMessage: { addListener: function() {} }
-            };
-        "#)
+        .initialization_script(&format!(r#"
+            window.chrome = window.chrome || {{}};
+            window.chrome.runtime = window.chrome.runtime || {{ 
+                sendMessage: function() {{}}, 
+                connect: function() {{}},
+                onMessage: {{ addListener: function() {{}} }}
+            }};
+            {}
+        "#, initial_css_script))
+
         .on_navigation(move |url| {
             let _ = app_handle.emit(&format!("browser-url-changed-{}", pane_id_nav), serde_json::json!({ "url": url.to_string() }));
             if let Some(loader) = app_handle.get_webview_window("browser_loader") {

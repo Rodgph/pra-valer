@@ -82,3 +82,18 @@
   overflow: hidden;
   position: relative;
 }
+
+.snapPreview {
+  position: absolute;
+  background: rgba(0, 255, 102, 0.1);
+  border: 2px solid #00FF66;
+  pointer-events: none;
+  box-sizing: border-box;
+  animation: snapPulse 1s infinite alternate;
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.2);
+}
+
+@keyframes snapPulse {
+  from { opacity: 0.2; }
+  to { opacity: 0.5; }
+}

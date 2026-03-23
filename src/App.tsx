@@ -40,10 +40,10 @@ const HandleView = () => (
 
 const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
   const { urls } = useBrowserStore();
-  const { styles: userStyles, setStyle } = useUserStylesStore();
-  
+  const { styles: userStyles, enabled: stylesEnabled, setStyle, toggleStyle } = useUserStylesStore();
+
   const targetUrl = urls[targetPaneId] || "";
-  
+
   // Cálculo seguro do domínio
   let domain = "GLOBAL";
   try {
@@ -53,7 +53,8 @@ const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
   } catch (e) {
     console.error("Erro ao processar URL:", targetUrl);
   }
-  
+
+  const isEnabled = stylesEnabled[domain] ?? true;
   const [localCss, setLocalCss] = useState("");
   const saveTimeoutRef = useRef<number | null>(null);
 
@@ -61,19 +62,24 @@ const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
     // Carrega o CSS salvo para este domínio sempre que o domínio mudar
     const saved = userStyles[domain] || "";
     setLocalCss(saved);
-    // Aplica imediatamente no navegador alvo
+    // Aplica se estiver habilitado
     if (targetPaneId) {
-      invoke("apply_browser_css", { paneId: targetPaneId, css: saved });
+      invoke("apply_browser_css", { 
+        paneId: targetPaneId, 
+        css: isEnabled ? saved : "" 
+      });
     }
-  }, [domain, targetPaneId, userStyles]); // Adicionado userStyles e targetPaneId como dependências seguras
+  }, [domain, targetPaneId, userStyles, isEnabled]);
 
   const handleCssChange = (value: string) => {
     setLocalCss(value);
-    
-    // 1. Injeta em tempo real (sem salvar ainda)
-    invoke("apply_browser_css", { paneId: targetPaneId, css: value });
 
-    // 2. Debounce para salvar na store (evita escritas excessivas no disco)
+    // 1. Injeta em tempo real se habilitado
+    if (isEnabled) {
+      invoke("apply_browser_css", { paneId: targetPaneId, css: value });
+    }
+
+    // 2. Debounce para salvar na store
     if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = window.setTimeout(() => {
       if (domain !== "GLOBAL") {
@@ -82,14 +88,38 @@ const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
     }, 500);
   };
 
+  const onToggle = () => {
+    const nextState = !isEnabled;
+    toggleStyle(domain);
+    
+    // Comunicação imediata com o browser
+    if (targetPaneId) {
+      invoke("apply_browser_css", { 
+        paneId: targetPaneId, 
+        css: nextState ? localCss : "" 
+      });
+    }
+  };
+
   return (
     <div className={styles.cssEditorContainer}>
       <div onMouseDown={() => appWindow.startDragging()} className={styles.cssEditorHeader}>
         <div className={styles.cssEditorTitleGroup}>
           <div className={styles.cssEditorSubtitle}>REALTIME_CSS_INJECTOR // PANE: {targetPaneId}</div>
-          <div className={styles.cssEditorTitle}>DOMAIN: <span style={{ color: '#00FF66' }}>{domain.toUpperCase()}</span></div>
+          <div className={styles.cssEditorTitle}>
+            DOMAIN: <span style={{ color: '#00FF66' }}>{domain.toUpperCase()}</span>
+          </div>
         </div>
-        <button onClick={() => appWindow.close()} className={styles.cssEditorClose}>✕</button>
+        <div className={styles.cssEditorHeaderActions}>
+          <button 
+            onClick={onToggle}
+            className={isEnabled ? styles.cssToggleActive : styles.cssToggleInactive}
+            title={isEnabled ? "Desativar CSS para este site" : "Ativar CSS para este site"}
+          >
+            {isEnabled ? "ENABLED" : "DISABLED"}
+          </button>
+          <button onClick={() => appWindow.close()} className={styles.cssEditorClose}>✕</button>
+        </div>
       </div>
       <textarea 
         autoFocus
@@ -97,14 +127,15 @@ const CSSInjectorView = ({ targetPaneId }: { targetPaneId: string }) => {
         onChange={(e) => handleCssChange(e.target.value)}
         placeholder="/* DIGITE SEU CSS BRUTALISTA AQUI... */"
         className={styles.cssEditorTextarea}
+        disabled={!isEnabled}
+        style={{ opacity: isEnabled ? 1 : 0.3 }}
       />
       <div className={styles.cssEditorFooter}>
-        STATUS: {localCss.length > 0 ? "INJECTING_ACTIVE" : "IDLE"} // PERSISTENCE: ENABLED
+        STATUS: {!isEnabled ? "OFFLINE" : (localCss.length > 0 ? "INJECTING_ACTIVE" : "IDLE")} // PERSISTENCE: ENABLED
       </div>
     </div>
   );
 };
-
 const SearchView = () => {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -308,10 +339,25 @@ function App() {
 
     const unlistenSync = listen<{ action: string; paneId: string; data?: any }>("sync-layout", (event) => {
       const { action, paneId, data } = event.payload;
-      if (action === "setModule") setModule(paneId, data);
-      else if (action === "split") splitPane(paneId, data);
-      else if (action === "remove") removePane(paneId);
-      else if (action === "full-reset") useLayout.setState({ root: data });
+      console.log("SYNC_LAYOUT_EVENT:", { action, paneId, data });
+      
+      if (action === "setModule") {
+        setModule(paneId, data);
+      } else if (action === "split") {
+        console.log("EXECUTING_SPLIT:", paneId, data);
+        // data agora pode ser um objeto: { direction, newPaneId, initialModuleId, insertAt }
+        if (typeof data === "object") {
+          splitPane(paneId, data.direction, data.newPaneId, data.initialModuleId, data.insertAt);
+        } else {
+          // Fallback para o menu de contexto antigo que enviava apenas a direção como string
+          const newId = `pane-${Math.random().toString(36).substr(2, 9)}`;
+          splitPane(paneId, data, newId, null, "second");
+        }
+      } else if (action === "remove") {
+        removePane(paneId);
+      } else if (action === "full-reset") {
+        useLayout.setState({ root: data });
+      }
     });
 
     const unlistenSearch = listen<{ moduleId: string }>("search-select", (event) => {
@@ -392,6 +438,7 @@ function App() {
 
   if (isMenu) {
     const menuRef = useRef<HTMLDivElement>(null);
+    const [menuPath, setMenuPath] = useState<string[]>(["root"]);
 
     useEffect(() => {
       if (menuRef.current) {
@@ -407,11 +454,15 @@ function App() {
         };
         resizeMenu();
       }
-    }, [activeMenu]);
+    }, [activeMenu, menuPath]);
 
-    return (
-      <div ref={menuRef} className={`menu-box ${styles.menuBox}`}>
-        {activeMenu?.type === "NAV" && (
+    const currentLevel = menuPath[menuPath.length - 1];
+
+    const renderRootMenu = () => {
+      if (!activeMenu) return null;
+
+      if (activeMenu.type === "NAV") {
+        return (
           <>
             <div className="menu-header">Navegação</div>
             <div className="menu-grid">
@@ -440,36 +491,69 @@ function App() {
             </div>
             <div className="divider" /><button onClick={() => appWindow.close()} className={styles.exitButton}>✕ Sair do Sistema</button>
           </>
-        )}
-        {activeMenu?.type === "HANDLE" && (
+        );
+      }
+
+      if (activeMenu.type === "HANDLE") {
+        return (
           <>
             <div className="menu-header">Posição</div>
             <div className="menu-grid"><button onClick={() => setSide(0)}>Topo</button><button onClick={() => setSide(1)}>Base</button><button onClick={() => setSide(2)}>Esq.</button><button onClick={() => setSide(3)}>Dir.</button></div>
             <div className="divider" /><button onClick={() => changeEffect("Mica")}>Mica</button><button onClick={() => changeEffect("Acrylic")}>Acrylic</button><button onClick={() => changeEffect("None")}>Sem Efeito</button>
           </>
-        )}
-        {activeMenu?.type === "LAYOUT" && (
+        );
+      }
+
+      if (activeMenu.type === "LAYOUT") {
+        return (
           <>
             <div className="menu-header">Painel</div>
             <button onClick={() => broadcastAction("split", activeMenu.targetId!, "horizontal")}>Dividir H</button>
             <button onClick={() => broadcastAction("split", activeMenu.targetId!, "vertical")}>Dividir V</button>
             <button onClick={() => broadcastAction("remove", activeMenu.targetId!)} className={styles.exitButton}>✕ Remover Divisão</button>
             <div className="divider" />
-            <div className="menu-header">Adicionar Módulo</div>
-            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "Clock")}>🕒 Relógio</button>
-            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "KernelManager")}>🧠 Kernel Manager</button>
-            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "SystemMonitor")}>📈 System Monitor</button>
-            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "FavoriteGames")}>🎮 Jogos Favoritos</button>
-            <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, "SocialBrowser")}>🌐 Navegador</button>
-            <div className="divider" />
-            <div className="menu-header">Modo Flutuante</div>
-            <button onClick={async () => { await appWindow.hide(); openModule("Clock", true); }}>🕒 Abrir Relógio</button>
-            <button onClick={async () => { await appWindow.hide(); openModule("KernelManager", true); }}>⚙️ Abrir Kernel</button>
-            <button onClick={async () => { await appWindow.hide(); openModule("SocialBrowser", true); }}>🌐 Abrir Navegador</button>
+            <button onClick={() => setMenuPath([...menuPath, "add-module"])} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Adicionar Módulo</span>
+              <span>›</span>
+            </button>
+            <button onClick={() => setMenuPath([...menuPath, "floating-module"])} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Modo Flutuante</span>
+              <span>›</span>
+            </button>
             <div className="divider" />
             <button onClick={() => broadcastAction("setModule", activeMenu.targetId!, null)}>Limpar Painel</button>
           </>
-        )}
+        );
+      }
+      return null;
+    };
+
+    const renderAddModuleMenu = (isFloating: boolean) => (
+      <>
+        <div className="menu-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button onClick={() => setMenuPath(["root"])} style={{ padding: '0 4px', fontSize: '14px', width: 'auto' }}>‹</button>
+          <span>{isFloating ? "FLUTUANTE" : "FIXO"}</span>
+        </div>
+        {Object.values(moduleRegistry).filter(m => m.id !== "NAV").map(m => (
+          <button key={m.id} onClick={async () => {
+            if (isFloating) {
+              await appWindow.hide();
+              openModule(m.id, true);
+            } else {
+              broadcastAction("setModule", activeMenu!.targetId!, m.id);
+            }
+          }}>
+            {m.icon} {m.name}
+          </button>
+        ))}
+      </>
+    );
+
+    return (
+      <div ref={menuRef} className={`menu-box ${styles.menuBox}`}>
+        {currentLevel === "root" && renderRootMenu()}
+        {currentLevel === "add-module" && renderAddModuleMenu(false)}
+        {currentLevel === "floating-module" && renderAddModuleMenu(true)}
       </div>
     );
   }

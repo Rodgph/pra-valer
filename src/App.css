@@ -169,6 +169,15 @@ html, body, #root, .loader-root {
   margin: 5px 0;
 }
 
+body.dragging-active * {
+  pointer-events: none !important;
+}
+
+body.dragging-active .search-container,
+body.dragging-active .menu-box {
+  display: none !important;
+}
+
 /* SEARCH */
 .search-container {
   width: 100vw;

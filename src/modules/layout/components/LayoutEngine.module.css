@@ -16,14 +16,78 @@
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   position: relative;
   overflow: hidden;
   background: transparent !important;
   border: 1px solid rgba(255, 255, 255, 0.03);
   box-sizing: border-box;
+  transition: all 0.2s ease;
 }
+
+.moduleHandle {
+  width: 100%;
+  height: var(--drag-handle-height);
+  background: rgba(25, 25, 25, 0.8);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 2000;
+  pointer-events: auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  opacity: 0.1;
+  transition: 
+    height var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.pane:hover .moduleHandle {
+  height: var(--drag-handle-revealed-height);
+  opacity: 1;
+  background: rgba(0, 255, 102, 0.1);
+}
+
+.handleIndicator {
+  width: 30px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: 
+    width var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.moduleHandle:hover .handleIndicator {
+  background: #00FF66;
+  width: 60px;
+  box-shadow: 0 0 10px #00FF66;
+}
+
+.moduleHandle:active {
+  cursor: grabbing;
+}
+
+.pane.dragOver::after {
+  content: "";
+  position: absolute;
+  background: rgba(0, 255, 102, 0.15);
+  border: 2px solid #00FF66;
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.3);
+  pointer-events: none;
+  z-index: 100;
+  transition: all 0.1s var(--ease-out);
+}
+
+.pane.dragOver[data-drop-zone="center"]::after { inset: 0; }
+.pane.dragOver[data-drop-zone="top"]::after { inset: 0 0 50% 0; }
+.pane.dragOver[data-drop-zone="bottom"]::after { inset: 50% 0 0 0; }
+.pane.dragOver[data-drop-zone="left"]::after { inset: 0 50% 0 0; }
+.pane.dragOver[data-drop-zone="right"]::after { inset: 0 0 0 50%; }
 
 .emptyPane {
   display: flex;
@@ -109,10 +173,16 @@
 }
 
 .moduleWrapper {
+  flex: 1;
   width: 100%;
-  height: 100%;
   overflow: hidden;
   background: transparent !important;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+/* Deslocamento do conteúdo quando a handle expande */
+.pane:hover .moduleWrapper {
+  transform: translateY(4px);
 }
 
 .moduleContent {

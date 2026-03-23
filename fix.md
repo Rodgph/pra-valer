@@ -1,81 +1,120 @@
-O problema real é que o Tauri/WebView2 no Windows tem um bug conhecido: ele pode exibir o frame da janela por alguns milissegundos antes de aplicar o visible(false), porque o processo de criação do WebView2 passa pelo Win32 internamente.
-A solução definitiva é forçar a ocultação via Win32 nativo logo após a criação, combinando SW_HIDE + opacidade 0 + WS_EX_NOACTIVATE:
-rust// src-tauri/src/lib.rs
+O problema raiz é closure stale — o onMouseUp é registrado no mousedown e carrega um snapshot congelado de openModules e draggingInstanceId. Quando o React re-renderiza durante o arraste, os valores da closure ficam velhos e a lógica de drop falha silenciosamente.
+A correção é simples e cirúrgica: usar .getState() direto das stores dentro do onMouseUp, nunca os valores da closure:
+tsx// LayoutEngine.tsx — apenas a função handleDragStart corrigida
 
-// Adicionar no topo com os outros imports
-#[cfg(target_os = "windows")]
-use windows::Win32::{
-    Foundation::HWND,
-    UI::WindowsAndMessaging::{
-        ShowWindow, SetWindowLongW, GetWindowLongW,
-        SW_HIDE, GWL_EXSTYLE,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_LAYERED,
-        SetLayeredWindowAttributes, LWA_ALPHA,
-    },
+const handleDragStart = (e: React.MouseEvent) => {
+  e.preventDefault();
+  if (!instance?.instanceId) return;
+
+  // Captura IDs AGORA (estes não mudam)
+  const capturedInstanceId = instance.instanceId;
+  const capturedModuleId   = instance.moduleId;
+  const capturedSourcePane = node.id;
+
+  setDraggingInstance(capturedInstanceId, capturedSourcePane);
+
+  // Overlay
+  const overlay = document.createElement("div");
+  overlay.id = "drag-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:99999;cursor:grabbing;background:transparent;";
+  document.body.appendChild(overlay);
+
+  // Ghost
+  const ghost = document.createElement("div");
+  ghost.id = "drag-ghost";
+  ghost.style.cssText = `
+    position:fixed;pointer-events:none;z-index:100000;
+    background:#00FF66;color:#000;font-family:monospace;
+    font-size:10px;font-weight:bold;padding:6px 12px;
+    transform:translate(-50%,-50%);
+    left:${e.clientX}px;top:${e.clientY}px;
+  `;
+  ghost.innerText = capturedModuleId.toUpperCase();
+  document.body.appendChild(ghost);
+
+  const onMouseMove = (ev: MouseEvent) => {
+    ghost.style.left = `${ev.clientX}px`;
+    ghost.style.top  = `${ev.clientY}px`;
+  };
+
+  const onMouseUp = (ev: MouseEvent) => {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.getElementById("drag-overlay")?.remove();
+    document.getElementById("drag-ghost")?.remove();
+
+    // ✅ ESTADO FRESCO — nunca da closure
+    const { openModules, mountModule, setDraggingInstance: clearDrag } =
+      useOrchestrator.getState();
+    const { setModule: setLayoutModule, splitPane } =
+      useLayout.getState();
+
+    // Detecta painel alvo atravessando o overlay
+    const target  = document.elementFromPoint(ev.clientX, ev.clientY);
+    const paneEl  = target?.closest("[data-pane-id]") as HTMLElement | null;
+    const targetPaneId = paneEl?.dataset.paneId;
+
+    if (targetPaneId && targetPaneId !== capturedSourcePane) {
+      const rect = paneEl!.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      const t = 0.25;
+
+      let zone: "center"|"top"|"bottom"|"left"|"right" = "center";
+      if      (y < rect.height * t)       zone = "top";
+      else if (y > rect.height * (1 - t)) zone = "bottom";
+      else if (x < rect.width  * t)       zone = "left";
+      else if (x > rect.width  * (1 - t)) zone = "right";
+
+      if (zone === "center") {
+        // SWAP
+        const targetModuleId = paneEl!.dataset.moduleId || null;
+        setLayoutModule(targetPaneId, capturedModuleId);
+
+        const draggedInst = openModules.find(m => m.instanceId === capturedInstanceId);
+        if (draggedInst) mountModule(draggedInst.instanceId, targetPaneId);
+
+        if (targetModuleId) {
+          setLayoutModule(capturedSourcePane, targetModuleId);
+          const targetInst = openModules.find(
+            m => m.moduleId === targetModuleId && m.paneId === targetPaneId
+          );
+          if (targetInst) mountModule(targetInst.instanceId, capturedSourcePane);
+        } else {
+          setLayoutModule(capturedSourcePane, null);
+        }
+
+      } else {
+        // SNAP SPLIT
+        const direction: SplitDirection =
+          (zone === "top" || zone === "bottom") ? "vertical" : "horizontal";
+        const insertAt = (zone === "top" || zone === "left") ? "first" : "second";
+        const newPaneId = `pane-${Math.random().toString(36).substr(2, 9)}`;
+
+        setLayoutModule(capturedSourcePane, null);
+        splitPane(targetPaneId, direction, newPaneId, capturedModuleId, insertAt);
+
+        const draggedInst = openModules.find(m => m.instanceId === capturedInstanceId);
+        if (draggedInst) mountModule(draggedInst.instanceId, newPaneId);
+      }
+
+      // Sync cross-window
+      setTimeout(() => {
+        invoke("emit_global_event", {
+          args: {
+            event: "sync-layout",
+            payload: { action: "full-reset", data: useLayout.getState().root }
+          }
+        });
+      }, 50);
+    }
+
+    clearDrag(null);
+  };
+
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
 };
-
-// Função que força silêncio total via Win32
-#[cfg(target_os = "windows")]
-fn force_silent_background(window: &tauri::WebviewWindow) {
-    use tauri::Manager;
-    let hwnd = HWND(window.hwnd().unwrap().0);
-    unsafe {
-        // 1. Força ocultação imediata no nível Win32 (ignora o Tauri)
-        let _ = ShowWindow(hwnd, SW_HIDE);
-
-        // 2. Aplica estilos de "janela fantasma": sem ativação, sem taskbar, layered
-        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        SetWindowLongW(
-            hwnd,
-            GWL_EXSTYLE,
-            ex_style
-                | WS_EX_NOACTIVATE.0 as i32
-                | WS_EX_TOOLWINDOW.0 as i32
-                | WS_EX_LAYERED.0 as i32,
-        );
-
-        // 3. Opacidade ZERO via Win32 (dupla garantia)
-        let _ = SetLayeredWindowAttributes(hwnd, None, 0, LWA_ALPHA);
-    }
-}
-
-// Função para revelar a janela quando estiver realmente pronta
-#[cfg(target_os = "windows")]
-pub fn reveal_window(window: &tauri::WebviewWindow) {
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE, SetLayeredWindowAttributes, LWA_ALPHA};
-    let hwnd = HWND(window.hwnd().unwrap().0);
-    unsafe {
-        // Restaura opacidade total antes de mostrar
-        let _ = SetLayeredWindowAttributes(hwnd, None, 255, LWA_ALPHA);
-        // Mostra sem roubar foco
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    }
-}
-Depois, logo após criar cada janela secundária, chame imediatamente:
-rust// Após criar search_global:
-let search = WebviewWindowBuilder::new(...).build().unwrap();
-#[cfg(target_os = "windows")]
-force_silent_background(&search);
-
-// Após criar handle_win:
-let handle_win = WebviewWindowBuilder::new(...).build().unwrap();
-#[cfg(target_os = "windows")]
-force_silent_background(&handle_win);
-
-// Após criar context_menu:
-let context_menu = WebviewWindowBuilder::new(...).build().unwrap();
-#[cfg(target_os = "windows")]
-force_silent_background(&context_menu);
-
-// Após criar browser_loader:
-let loader_win = WebviewWindowBuilder::new(...).build().unwrap();
-#[cfg(target_os = "windows")]
-force_silent_background(&loader_win);
-E quando for revelar o handle_win (que aparece junto com a main), substitua o .show() por:
-rust// No evento "app-ready" ou onde você exibe a alça:
-#[cfg(target_os = "windows")]
-reveal_window(&handle_win);
-
-Por que isso funciona onde o .visible(false) falha:
-AbordagemNívelProblema.visible(false) TauriTauri APIWebView2 já criou o HWND antesposition(-10000,-10000)Tauri APIJanela ainda é registrada no WindowsShowWindow(SW_HIDE) + WS_EX_LAYERED alpha=0Win32 nativoIntercepta antes do compositor do Windows renderizar
-O WS_EX_LAYERED com alpha=0 é a chave: mesmo que o Windows tente compor a janela, ela é tratada como totalmente transparente no nível do DWM (Desktop Window Manager), sem nenhum pixel visível ao usuário.
+Por que isso resolve:
+O Gemini ficou tentando consertar sintoma (condições erradas, IDs errados) sem perceber a causa raiz. O onMouseUp é um closure registrado no mousedown — qualquer valor de hook (openModules, draggingInstanceId) que ele captura fica congelado no momento do clique. Se o React re-renderiza, a store atualiza, mas o closure ainda vê o estado antigo.
+useOrchestrator.getState() e useLayout.getState() leem o estado no momento da execução do drop, sempre atual, sem depender de nada que o React possa ter re-renderizado.

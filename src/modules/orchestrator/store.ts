@@ -11,6 +11,7 @@ interface OrchestratorActions {
   mountModule: (instanceId: string, paneId: string, skipBroadcast?: boolean) => void;
   focusInstance: (instanceId: string) => void;
   updateInstanceBounds: (instanceId: string, bounds: { x?: number, y?: number, width?: number, height?: number }) => void;
+  setDraggingInstance: (instanceId: string | null, sourcePaneId?: string | null) => void;
 }
 
 export const useOrchestrator = create<OrchestratorState & OrchestratorActions>()(
@@ -28,6 +29,8 @@ export const useOrchestrator = create<OrchestratorState & OrchestratorActions>()
       return {
         openModules: [],
         focusedInstanceId: null,
+        draggingInstanceId: null,
+        draggingSourcePaneId: null,
         nextZIndex: 10,
 
         openModule: (moduleId, isFloating = false, paneId, skipBroadcast) => {
@@ -94,6 +97,9 @@ export const useOrchestrator = create<OrchestratorState & OrchestratorActions>()
           }));
         },
 
+        setDraggingInstance: (instanceId, sourcePaneId = null) => 
+          set({ draggingInstanceId: instanceId, draggingSourcePaneId: sourcePaneId }),
+
         mountModule: (instanceId, paneId, skipBroadcast) => {
           set((state) => {
             if (!skipBroadcast) {
@@ -124,6 +130,13 @@ export const useOrchestrator = create<OrchestratorState & OrchestratorActions>()
         },
       };
     },
-    { name: "social-os-orchestrator" }
+    { 
+      name: "social-os-orchestrator",
+      partialize: (state) => ({ 
+        openModules: state.openModules, 
+        focusedInstanceId: state.focusedInstanceId,
+        nextZIndex: state.nextZIndex 
+      })
+    }
   )
 );

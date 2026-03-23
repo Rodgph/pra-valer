@@ -4,6 +4,7 @@ import { getCurrentWindow, getAllWindows } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useBrowserStore } from "./browserStore";
 import { useUserStylesStore } from "./userStylesStore";
+import { useOrchestrator } from "../orchestrator/store";
 import stylesModule from "./SocialBrowser.module.css";
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 
 const SocialBrowser: React.FC<Props> = ({ paneId, instanceId, isFloating }) => {
   const { urls, setPaneUrl } = useBrowserStore();
-  const { styles: savedStyles } = useUserStylesStore();
+  const { styles: savedStyles, enabled: stylesEnabled } = useUserStylesStore();
   
   // Identificador único para o backend (Tauri labels)
   const id = paneId || instanceId || "default";
@@ -31,9 +32,11 @@ const SocialBrowser: React.FC<Props> = ({ paneId, instanceId, isFloating }) => {
     try {
       if (!url || !url.startsWith("http")) return;
       const domain = new URL(url).hostname;
-      const css = savedStyles[domain];
-      if (css) {
-        invoke("apply_browser_css", { paneId: id, css });
+      const isEnabled = stylesEnabled[domain] ?? true;
+      const css = isEnabled ? savedStyles[domain] : "";
+      
+      if (css || !isEnabled) {
+        invoke("apply_browser_css", { paneId: id, css: css || "" });
       }
     } catch (e) {
       console.error("Erro ao aplicar estilos automáticos:", e);
@@ -137,6 +140,14 @@ const SocialBrowser: React.FC<Props> = ({ paneId, instanceId, isFloating }) => {
     // 3. Força atualização imediata de bounds se já estiver montado
     if (isBrowserMounted) {
       syncBounds(false);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    if (instanceId) {
+      setDraggingInstance(instanceId);
+      e.dataTransfer.setData("instanceId", instanceId);
+      e.dataTransfer.effectAllowed = "move";
     }
   };
 
